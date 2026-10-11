@@ -61,7 +61,8 @@ daoc-gfx … disable srgb textures
 
 The checklist marks a patch `[x]` when it is on, and `[~]` when it is partly on:
 only some of the texture pack's folders have their pack files live, or
-`anisotropy` lost its launcher line to a reinstall (left as they are unless you
+`anisotropy` lost its launcher line to a reinstall or has an older proxy build
+after a daoc-gfx update (left as they are unless you
 toggle them). Turning `textures` on before a pack is installed asks for its
 archives; drag every part into the terminal.
 
@@ -122,7 +123,9 @@ loading any `d3d9.dll` in the client folder. Turning the patch on changes that
 default to `d3d9=n,b;dxgi=b` in the installed copy
 (`dist/DAoCLauncher.app/Contents/MacOS/launch`) and marks the line; turning it
 off puts the original line back. `install-client.sh` copies a fresh launcher, so
-after a reinstall the patch shows `partly on`; enable it again. A
+after a reinstall the patch shows `partly on`; enable it again. The same goes
+for a daoc-gfx update that ships a rebuilt `d3d9.dll`: the proxy next to
+`game.dll` is then an older build, and enabling the patch again replaces it. A
 `DAOC_DLL_OVERRIDES` you set yourself still replaces the default, and with
 `d3d9=b` in it the proxy is not loaded.
 
@@ -200,7 +203,9 @@ through its transitions, and a test checks that the committed
 
 `daoc_gfx/d3d9.dll` is committed so users need no compiler. After changing
 anything in `proxy/`, rebuild it with mingw-w64 (`brew install mingw-w64`) and
-commit it:
+commit it. The committed DLL was built with Homebrew's mingw-w64 14.0.0
+(`i686-w64-mingw32-gcc` 16.2.0), which rebuilds it byte for byte; other
+versions build a different file.
 
 ```bash
 make -C proxy

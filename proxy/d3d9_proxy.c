@@ -153,7 +153,7 @@ typedef struct {
     void **orig;
     IDirect3DDevice9 *self;
     gfx_stage st[GFX_STAGES];
-    int recording;
+    int recording, ex;
     unsigned long writes, applies, blocks;
     int forced_once, game_aniso_logged;
 } dev_rec;
@@ -284,6 +284,16 @@ static void resync(dev_rec *d)
     }
 }
 
+/* A plain device returns to D3D9's defaults on Reset and drops any recording;
+ * an Ex device keeps its state through Reset and ResetEx, so read it back. */
+static void after_reset(dev_rec *d)
+{
+    if (!d->ex)
+        reset_stages(d);
+    else if (!d->recording)
+        resync(d);
+}
+
 static HRESULT WINAPI dev_SetSamplerState(IDirect3DDevice9 *dev, DWORD s, D3DSAMPLERSTATETYPE type,
                                           DWORD value)
 {
@@ -301,7 +311,7 @@ static HRESULT WINAPI dev_SetSamplerState(IDirect3DDevice9 *dev, DWORD s, D3DSAM
     case D3DSAMP_MINFILTER:
     case D3DSAMP_MAXANISOTROPY:
         gfx_set(&d->st[s], type, value);
-        if (d->st[s].game_aniso && !d->game_aniso_logged) {
+        if (type == D3DSAMP_MINFILTER && value == D3DTEXF_ANISOTROPIC && !d->game_aniso_logged) {
             d->game_aniso_logged = 1;
             log_line("device %p: the game set D3DTEXF_ANISOTROPIC itself (stage %lu)", d->self, s);
         }
@@ -315,7 +325,7 @@ static HRESULT WINAPI dev_GetSamplerState(IDirect3DDevice9 *dev, DWORD s, D3DSAM
                                           DWORD *value)
 {
     dev_rec *d = REC(dev_rec, dev);
-    if (s < GFX_STAGES && value && !d->recording) {
+    if (s < GFX_STAGES && value) {
         if (type == D3DSAMP_MINFILTER) {
             *value = d->st[s].min;
             return D3D_OK;
@@ -349,7 +359,7 @@ static HRESULT WINAPI dev_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp
     dev_rec *d = REC(dev_rec, dev);
     HRESULT hr = DEV_ORIG(d, reset_fn, Reset)(dev, pp);
     if (SUCCEEDED(hr))
-        reset_stages(d);
+        after_reset(d);
     return hr;
 }
 
@@ -359,7 +369,7 @@ static HRESULT WINAPI dev_ResetEx(IDirect3DDevice9Ex *dev, D3DPRESENT_PARAMETERS
     dev_rec *d = REC(dev_rec, dev);
     HRESULT hr = ((reset_ex_fn)d->orig[SLOT(IDirect3DDevice9ExVtbl, ResetEx)])(dev, pp, mode);
     if (SUCCEEDED(hr))
-        reset_stages(d);
+        after_reset(d);
     return hr;
 }
 
@@ -447,6 +457,7 @@ static void hook_device(IDirect3DDevice9 *dev)
     ex = is_same_object((IUnknown *)dev, &IID_IDirect3DDevice9Ex);
     ADOPT(d, dev, ex ? SLOTS(IDirect3DDevice9ExVtbl) : SLOTS(IDirect3DDevice9Vtbl));
     d->self = dev;
+    d->ex = ex;
     reset_stages(d);
     d->vtbl[DEV_SLOT(Release)] = (void *)dev_Release;
     d->vtbl[DEV_SLOT(Reset)] = (void *)dev_Reset;

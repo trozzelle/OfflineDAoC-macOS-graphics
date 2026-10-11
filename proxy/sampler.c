@@ -8,7 +8,6 @@ void gfx_stage_reset(gfx_stage *st)
     st->levels = 0;
     st->sent_min = GFX_TEXF_POINT;
     st->sent_maxaniso = 1;
-    st->game_aniso = 0;
 }
 
 int gfx_forces(const gfx_stage *st)
@@ -23,8 +22,6 @@ void gfx_set(gfx_stage *st, uint32_t type, uint32_t value)
     switch (type) {
     case GFX_SAMP_MINFILTER:
         st->min = value;
-        if (value == GFX_TEXF_ANISOTROPIC)
-            st->game_aniso = 1;
         break;
     case GFX_SAMP_MIPFILTER:
         st->mip = value;
@@ -61,7 +58,7 @@ int gfx_reconcile(gfx_stage *st, uint32_t level, uint32_t *min, uint32_t *maxani
 void gfx_resync(gfx_stage *st, uint32_t dev_min, uint32_t dev_mip, uint32_t dev_maxaniso,
                 uint32_t levels)
 {
-    if (dev_min == GFX_TEXF_ANISOTROPIC && !st->game_aniso) {
+    if (dev_min == GFX_TEXF_ANISOTROPIC && st->min != GFX_TEXF_ANISOTROPIC) {
         st->min = GFX_TEXF_LINEAR;
     } else {
         st->min = dev_min;

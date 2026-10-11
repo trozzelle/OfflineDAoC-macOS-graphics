@@ -160,7 +160,8 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
 
 def ask_level(app: Path, ask: Callable[[str], str], out=print) -> int:
     choices = "/".join(map(str, anisotropy.LEVELS))
-    default = anisotropy.level(app)
+    current = anisotropy.level(app)
+    default = current if current in anisotropy.LEVELS else anisotropy.DEFAULT_LEVEL
     while True:
         try:
             raw = ask(f"Anisotropic filtering level, {choices} [{default}]: ").strip().rstrip("xX")

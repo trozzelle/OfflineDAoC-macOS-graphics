@@ -48,8 +48,6 @@ typedef struct {
     uint32_t levels;
     /* What the device holds for MINFILTER and MAXANISOTROPY. */
     uint32_t sent_min, sent_maxaniso;
-    /* The game asked for ANISOTROPIC itself at least once. */
-    int game_aniso;
 } gfx_stage;
 
 /* D3D9's defaults, which a device holds after CreateDevice and Reset. */
@@ -70,8 +68,8 @@ int gfx_reconcile(gfx_stage *st, uint32_t level, uint32_t *min, uint32_t *maxani
 /* Rebuild the game's values from what the device holds, after something
  * outside SetSamplerState (a state block's Apply) changed it. A device value
  * of MINFILTER = ANISOTROPIC is taken as this proxy's forcing, so the game's
- * value becomes LINEAR and its MAXANISOTROPY is kept, unless the game has
- * asked for ANISOTROPIC itself. */
+ * value becomes LINEAR and its MAXANISOTROPY is kept, unless the game's
+ * current MINFILTER is ANISOTROPIC itself. */
 void gfx_resync(gfx_stage *st, uint32_t dev_min, uint32_t dev_mip, uint32_t dev_maxaniso,
                 uint32_t levels);
 

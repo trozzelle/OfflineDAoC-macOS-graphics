@@ -92,6 +92,25 @@ class Anisotropy(Fixture):
         self.change(enable=["anisotropy"])
         self.assertEqual(self.state(), "on")
 
+    def test_a_moved_install_still_finds_its_default_launcher(self):
+        install = self.tmp / "install"
+        app = install / "dist" / "OfflineDAoC" / "runtime" / "client-opendaoc" / "app"
+        app.parent.mkdir(parents=True)
+        os.rename(self.app, app)
+        os.rename(self.launcher, install / "dist" / "DAoCLauncher.app")
+        self.app = app
+        self.change(enable=["anisotropy"], launcher=None)
+
+        os.rename(install, self.tmp / "moved")
+        self.app = self.tmp / "moved" / app.relative_to(install)
+        script = self.tmp / "moved" / "dist" / "DAoCLauncher.app" / anisotropy.LAUNCHER_SCRIPT
+        self.assertEqual(patches.states(self.app)["anisotropy"], "on")
+        self.change(enable=["anisotropy"], launcher=None, level=4)
+        self.assertEqual(patches.states(self.app)["anisotropy"], "on")
+        self.change(disable=["anisotropy"], launcher=None)
+        self.assertEqual(patches.states(self.app)["anisotropy"], "off")
+        self.assertEqual(script.read_text(), STOCK_LAUNCHER)
+
     def test_an_older_proxy_build_is_replaced(self):
         self.change(enable=["anisotropy"])
         self.proxy.write_bytes(b"MZ " + anisotropy.PROXY_MARKER + b", source old")
@@ -107,6 +126,13 @@ class Anisotropy(Fixture):
         self.assertEqual(self.state(), "off")
         self.change(disable=["anisotropy"])
         self.assertEqual(self.proxy.read_bytes(), b"MZ reshade")
+
+    def test_a_level_file_of_your_own_survives_turning_it_off(self):
+        self.change(enable=["anisotropy"])
+        conf = self.app / anisotropy.CONF
+        conf.write_text("anisotropy = 4\n")
+        self.change(disable=["anisotropy"])
+        self.assertEqual(conf.read_text(), "anisotropy = 4\n")
 
     def test_a_launcher_without_the_known_line_is_refused(self):
         self.script.write_text("#!/bin/bash\nexport WINEDLLOVERRIDES=d3d9=b\n")

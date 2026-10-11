@@ -118,7 +118,6 @@ static void the_game_asking_for_anisotropy_itself_is_passed_on(void)
     gfx_stage_reset(&st);
     gfx_set(&st, GFX_SAMP_MINFILTER, GFX_TEXF_ANISOTROPIC);
     gfx_set(&st, GFX_SAMP_MAXANISOTROPY, 8);
-    EXPECT(st.game_aniso);
     /* No mips: not forced, but the game's own request reaches the device. */
     gfx_reconcile(&st, 16, &min, &maxaniso);
     EXPECT(min == GFX_TEXF_ANISOTROPIC && maxaniso == 8);
@@ -154,6 +153,22 @@ static void resync_keeps_the_game_anisotropy_once_it_asked(void)
     gfx_set(&st, GFX_SAMP_MINFILTER, GFX_TEXF_ANISOTROPIC);
     gfx_resync(&st, GFX_TEXF_ANISOTROPIC, GFX_TEXF_NONE, 8, 1);
     EXPECT(st.min == GFX_TEXF_ANISOTROPIC && st.maxaniso == 8);
+}
+
+static void resync_forgets_the_game_anisotropy_once_it_moved_on(void)
+{
+    gfx_stage st = trilinear();
+    uint32_t min, maxaniso;
+    gfx_set(&st, GFX_SAMP_MINFILTER, GFX_TEXF_ANISOTROPIC);
+    gfx_set(&st, GFX_SAMP_MINFILTER, GFX_TEXF_LINEAR);
+    settle(&st);
+    /* A block put back the forced values: still this proxy's, not the game's. */
+    gfx_resync(&st, GFX_TEXF_ANISOTROPIC, GFX_TEXF_LINEAR, 16, 9);
+    EXPECT(st.min == GFX_TEXF_LINEAR && st.maxaniso == 1);
+    /* So a bilinear-only pass afterwards keeps the game's filtering. */
+    gfx_set(&st, GFX_SAMP_MIPFILTER, GFX_TEXF_NONE);
+    gfx_reconcile(&st, 16, &min, &maxaniso);
+    EXPECT(min == GFX_TEXF_LINEAR && maxaniso == 1);
 }
 
 static void reset_forgets_everything(void)
@@ -200,6 +215,7 @@ int main(void)
     resync_reads_forcing_back_as_the_game_linear();
     resync_to_unforced_values_forces_again();
     resync_keeps_the_game_anisotropy_once_it_asked();
+    resync_forgets_the_game_anisotropy_once_it_moved_on();
     reset_forgets_everything();
     level_lines_are_parsed();
     bad_or_missing_levels_are_rejected();

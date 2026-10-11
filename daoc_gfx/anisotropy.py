@@ -51,8 +51,9 @@ def default_launcher(app: Path) -> Path:
 
 
 def launcher_for(app: Path, launcher: Optional[Path]) -> Path:
-    """The launcher given, else the one recorded when the patch was turned on,
-    else the default."""
+    """The launcher given, else the one recorded when the patch was turned on
+    with --launcher, else the default (found from where the client is now, so a
+    moved install still finds its own)."""
     if launcher is not None:
         return launcher.expanduser().resolve()
     state = read_json(state_dir(app) / STATE)
@@ -113,6 +114,14 @@ def _write_conf(app: Path, value: int) -> None:
     os.replace(tmp, app / CONF)
 
 
+def _conf_is_ours(app: Path) -> bool:
+    conf = app / CONF
+    if not conf.exists():
+        return False
+    with open(conf, encoding="utf-8", errors="replace") as f:
+        return f.readline().rstrip("\n") == CONF_MARKER
+
+
 def _replace_line(script: Path, old: str, new: str) -> None:
     """Swap the one line `old` (indentation kept) for `new`, atomically, keeping the mode."""
     text = script.read_text(encoding="utf-8")
@@ -153,7 +162,8 @@ def enable(app: Path, launcher: Optional[Path] = None, is_running=game_running,
         if proxy_state(app) == "foreign":
             raise GfxError(f"{app / TARGET} is not daoc-gfx's (ReShade or another wrapper?); "
                            "move it aside to enable anisotropy")
-        write_json(state_dir(app) / STATE, {"launcher": str(where)})
+        if launcher is not None:
+            write_json(state_dir(app) / STATE, {"launcher": str(where)})
         _write_conf(app, level_wanted if level_wanted is not None else level(app))
         if proxy_state(app) != "current":
             _copy_proxy(app)
@@ -169,9 +179,10 @@ def disable(app: Path, launcher: Optional[Path] = None, is_running=game_running)
             _replace_line(where / LAUNCHER_SCRIPT, PATCHED_LINE, STOCK_LINE)
         if proxy_state(app) in ("current", "older"):
             (app / TARGET).unlink()
-        for name in (PROXY_LOG, CONF):
-            if (app / name).exists():
-                (app / name).unlink()
+        if (app / PROXY_LOG).exists():
+            (app / PROXY_LOG).unlink()
+        if _conf_is_ours(app):
+            (app / CONF).unlink()
         record = state_dir(app) / STATE
         if record.exists():
             record.unlink()
