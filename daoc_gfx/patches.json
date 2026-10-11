@@ -1,0 +1,20 @@
+{
+  "retina": {
+    "kind": "retina",
+    "title": "Native resolution (Wine Retina mode)",
+    "description": "Render at the display's physical resolution instead of its point size, which macOS then upscales: 3840x2160 instead of 1920x1080 on a 4K panel at the default scaling. The interface looks half as large."
+  },
+  "srgb": {
+    "kind": "mtld3d",
+    "title": "Colour-managed output (sRGB)",
+    "description": "mtld3d tags frames as sRGB (color.space = accurate), so a wide-gamut panel shows the art's intended hues instead of stretching them to the panel's gamut.",
+    "mtld3d": {
+      "color.space": "accurate"
+    }
+  },
+  "textures": {
+    "kind": "textures",
+    "title": "Texture pack",
+    "description": "Pack files from archives you downloaded (e.g. Sqeak's DAoC Textures) over the client's folders. Off keeps the pack aside and puts the original files back."
+  }
+}

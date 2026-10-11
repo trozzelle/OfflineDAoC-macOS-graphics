@@ -1,31 +1,25 @@
-"""Display presets: Wine's Retina mode and mtld3d.conf settings for one client.
+"""Display patches: Wine's Retina mode and mtld3d.conf settings for one client.
 
-A preset (presets/display.json) names a Retina mode setting and the mtld3d.conf
-keys it wants. Applying one records the prefix's Retina setting from before the
-first preset, so `revert` puts it back exactly. daoc-gfx writes mtld3d.conf only
-when no such file exists or when it wrote the existing one itself (first-line
-marker); a file of your own is never overwritten or deleted.
+`apply` sets exactly which display patches are on. Turning Retina mode on
+records the prefix's RetinaMode value from before, and turning it off restores
+that value. The mtld3d.conf keys of every enabled mtld3d patch go into one file
+whose first line is a marker; an mtld3d.conf without the marker is the user's
+own and is never overwritten or deleted.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from .common import GfxError, game_running, operation_lock, read_json, refuse_if_running, state_dir, write_json
 
-PRESETS_FILE = Path(__file__).resolve().parent.parent / "presets" / "display.json"
 STATE = "display.json"
 CONF = "mtld3d.conf"
 CONF_MARKER = "# Written by daoc-gfx (OfflineDAoC-macOS-graphics)"
 MAC_DRIVER_KEY = r"HKCU\Software\Wine\Mac Driver"
-
-
-def presets() -> Dict[str, dict]:
-    return json.loads(PRESETS_FILE.read_text(encoding="utf-8"))
 
 
 class WineRegistry:
@@ -68,57 +62,55 @@ def conf_is_ours(conf: Path) -> bool:
         return f.readline().rstrip("\n") == CONF_MARKER
 
 
-def render_conf(name: str, keys: Dict[str, str]) -> str:
-    lines = [CONF_MARKER, f"# Display preset '{name}'. 'daoc-gfx display revert' removes this file.", ""]
+def conf_owner(app: Path) -> str:
+    conf = app / CONF
+    return "none" if not conf.exists() else ("daoc-gfx" if conf_is_ours(conf) else "your own")
+
+
+def render_conf(ids: List[str], keys: Dict[str, str]) -> str:
+    lines = [CONF_MARKER,
+             f"# Patches: {', '.join(ids)}. Disabling the last of them removes this file.", ""]
     lines += [f"{key} = {value}" for key, value in keys.items()]
     return "\n".join(lines) + "\n"
 
 
-def apply(app: Path, registry, name: str, is_running=game_running) -> dict:
-    table = presets()
-    if name not in table:
-        raise GfxError(f"no display preset '{name}'; choose from: {', '.join(table)}")
-    preset = table[name]
-    with operation_lock(app):
-        refuse_if_running(app, is_running)
-        conf = app / CONF
-        if conf.exists() and not conf_is_ours(conf):
-            raise GfxError(f"{conf} is your own file; move it aside to use a display preset")
-        state_path = state_dir(app) / STATE
-        state = read_json(state_path)
-        if state is None:
-            # Recorded before the first change, so revert can restore it.
-            state = {"retina_before": registry.retina()}
-        state["preset"] = name
-        write_json(state_path, state)
-        registry.set_retina("y" if preset["retina"] else state["retina_before"])
-        keys = preset.get("mtld3d", {})
-        if keys:
-            conf.write_text(render_conf(name, keys), encoding="utf-8")
-        elif conf.exists():
-            conf.unlink()
-        return preset
-
-
-def revert(app: Path, registry, is_running=game_running) -> Optional[str]:
-    with operation_lock(app):
-        refuse_if_running(app, is_running)
-        state_path = state_dir(app) / STATE
-        state = read_json(state_path)
-        if state is None:
-            return None
-        registry.set_retina(state["retina_before"])
-        conf = app / CONF
-        if conf.exists() and conf_is_ours(conf):
-            conf.unlink()
-        state_path.unlink()
-        return state["preset"]
-
-
-def status(app: Path) -> dict:
+def enabled(app: Path) -> List[str]:
     state = read_json(state_dir(app) / STATE)
-    conf = app / CONF
-    return {
-        "preset": state["preset"] if state else None,
-        "conf": "none" if not conf.exists() else ("daoc-gfx" if conf_is_ours(conf) else "your own"),
-    }
+    return state["enabled"] if state else []
+
+
+def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
+          get_registry: Callable[[], WineRegistry], is_running=game_running) -> None:
+    """Make `wanted` the exact set of enabled display patches (ids of `catalog`)."""
+    with operation_lock(app):
+        refuse_if_running(app, is_running)
+        conf = app / CONF
+        conf_ids = [p for p in catalog if p in wanted and catalog[p]["kind"] == "mtld3d"]
+        keys: Dict[str, str] = {}
+        for p in conf_ids:
+            keys.update(catalog[p]["mtld3d"])
+        if keys and conf.exists() and not conf_is_ours(conf):
+            raise GfxError(f"{conf} is your own file; move it aside to enable {', '.join(conf_ids)}")
+
+        state_path = state_dir(app) / STATE
+        state = read_json(state_path) or {"enabled": []}
+        retina_on = any(catalog[p]["kind"] == "retina" for p in wanted)
+        retina_was = any(catalog.get(p, {}).get("kind") == "retina" for p in state["enabled"])
+        if retina_on and not retina_was:
+            registry = get_registry()
+            state["retina_before"] = registry.retina()
+            write_json(state_path, state)  # recorded before the change, so disable can restore it
+            registry.set_retina("y")
+        elif retina_was and not retina_on:
+            get_registry().set_retina(state.pop("retina_before", None))
+
+        if keys:
+            conf.write_text(render_conf(conf_ids, keys), encoding="utf-8")
+        elif conf.exists() and conf_is_ours(conf):
+            conf.unlink()
+
+        state["enabled"] = [p for p in catalog if p in wanted]
+        if state["enabled"]:
+            write_json(state_path, state)
+        elif state_path.exists():
+            state_path.unlink()

@@ -10,22 +10,26 @@ DAoC is a property of Mythic Entertainment / Broadsword Online Games (Electronic
 This is unaffiliated fan tooling. It ships no game files and no third-party art:
 texture packs are archives you download yourself.
 
-## What it patches
+## Patches
 
-| Area | What it does | Undo |
+Each patch is turned on and off on its own, from a checklist (`select`) or by
+name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
+
+| Patch | What it does | Off means |
 |---|---|---|
-| Display presets | Wine's Retina mode (render at the panel's physical resolution) and [mtld3d](https://github.com/athei/mtld3d) settings in `mtld3d.conf` | `display revert` |
-| Texture packs | Installs a pack's folders over the client's, keeping the originals; switches between the two at any time | `textures uninstall` |
+| `retina` | Wine's Retina mode: render at the panel's physical resolution | The prefix's Retina setting from before it was turned on |
+| `srgb` | [mtld3d](https://github.com/athei/mtld3d) `color.space = accurate` in `mtld3d.conf` | The key is gone (and the file, when no other patch needs it) |
+| `textures` | A texture pack's files over the client's folders, originals kept | Original files live, the pack kept aside for an instant switch back |
 
 Every change is recorded in `.daoc-gfx/` inside the client's app folder, and
 every command that changes something refuses to run while the client is running
-from that folder.
+from that folder. Changes take effect at the next client launch.
 
 ## Requirements
 
 - macOS on APFS (backups are APFS clones; on other file systems they are full copies)
 - `python3` 3.9 or newer (the Xcode Command Line Tools one is enough); nothing to install
-- For display presets: the CrossOver-based Wine and the prefix the client runs in
+- For `retina`: the CrossOver-based Wine and the prefix the client runs in
   (`dist/wine` and `dist/prefix` of an OfflineDAoC-macOS install)
 
 Archives are read with macOS's own `bsdtar`, which handles `.7z`, `.zip` and tar files.
@@ -38,46 +42,51 @@ Archives are read with macOS's own `bsdtar`, which handles `.7z`, `.zip` and tar
 
 The app folder is the one holding `game.dll`
 (`dist/OfflineDAoC/runtime/client-opendaoc/app` in an OfflineDAoC-macOS install).
-From an OfflineDAoC-macOS checkout, `./graphics.sh <command>` fills in all three paths.
+From an OfflineDAoC-macOS checkout, `./graphics.sh <command>` fills in all three
+paths, and `./graphics.sh` alone opens the checklist.
 
 ```bash
-daoc-gfx … status                         # what is applied to this client
+daoc-gfx … select                         # checklist: toggle by number, Enter applies
+daoc-gfx … status                         # each patch and whether it is on
+daoc-gfx … list                           # the patches and what each does
+daoc-gfx … enable retina srgb
+daoc-gfx … enable textures --archives A.7z B.7z   # archives only to install the pack
+daoc-gfx … disable srgb textures
+```
 
-daoc-gfx … display list                   # presets and what each does
-daoc-gfx … display apply retina-srgb      # takes effect at the next launch
-daoc-gfx … display status
-daoc-gfx … display revert                 # back to the settings before the first preset
+The checklist marks a patch `[x]` when it is on, and `[~]` when only some of
+the texture pack's folders have their pack files live (left as they are unless
+you toggle it). Turning `textures` on before a pack is installed asks for its
+archives; drag every part into the terminal.
 
+Texture-pack folders in detail:
+
+```bash
 daoc-gfx … textures inspect A.7z B.7z     # which client folders the pack replaces
 daoc-gfx … textures install A.7z B.7z [-c zones …]
 daoc-gfx … textures use original [-c zones …]   # originals live, pack kept aside
 daoc-gfx … textures use pack
 daoc-gfx … textures uninstall [-c zones …]      # originals back, pack files deleted
 daoc-gfx … textures recover               # after an interrupted operation
+daoc-gfx … textures status
 ```
 
-### Display presets
+### Display patches
 
-| Preset | Retina mode | mtld3d.conf |
-|---|---|---|
-| `retina` | on | (none) |
-| `srgb` | as before the first preset | `color.space = accurate` |
-| `retina-srgb` | on | `color.space = accurate` |
-
-- **Retina mode.** Wine's Mac driver normally presents the screen at its point size, so
+- **`retina`.** Wine's Mac driver normally presents the screen at its point size, so
   on a 4K panel at the default "looks like 1920x1080" scaling the game renders 1920x1080
   and macOS upscales it. With `RetinaMode` set in the prefix
   (`HKCU\Software\Wine\Mac Driver`) the game sees the physical pixels and renders at
   3840x2160. The interface is drawn at the same pixel size, so it looks half as large.
   The client's own `ui_scale` is in `user.dat`; this tool does not change it.
-- **`color.space = accurate`.** mtld3d tags its output as sRGB, so macOS colour-manages
-  it onto the panel; the default (`passthrough`) shows the game's colours at the panel's
-  native primaries, more saturated on a wide-gamut display. See mtld3d's
+- **`srgb`.** mtld3d tags its output as sRGB, so macOS colour-manages it onto the
+  panel; the default (`color.space = passthrough`) shows the game's colours at the
+  panel's native primaries, more saturated on a wide-gamut display. See mtld3d's
   [`mtld3d.conf`](https://github.com/athei/mtld3d/blob/main/mtld3d.conf).
 
 `mtld3d.conf` is written next to `game.dll` with a first-line marker. A
-`mtld3d.conf` of your own (no marker) is never overwritten or deleted: the
-preset is refused instead.
+`mtld3d.conf` of your own (no marker) is never overwritten or deleted: mtld3d
+patches are refused instead, and `retina` still works.
 
 ### Texture packs
 
@@ -109,11 +118,12 @@ To install a different pack over an installed folder, uninstall it first.
 [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2) comes
 as two archives (`Sqeaks-DAoC-Textures-v0.1-Part1.7z` and `-Part2.7z`) and a
 Windows installer that this tool replaces on macOS. Download both archives
-from Nexus Mods (it needs a Nexus account), then pass both parts at once:
+from Nexus Mods (it needs a Nexus account), then check and install both parts
+at once (or turn `textures` on in `./graphics.sh` and drag them in):
 
 ```bash
 ./graphics.sh textures inspect ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
-./graphics.sh textures install ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+./graphics.sh enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
 ```
 
 The pack was made and tested for the Eden server's client; on this client it is
@@ -135,7 +145,8 @@ python3 -m unittest discover -s tests
 ```
 
 The tests build small `.7z` packs with `bsdtar` and run the install, switch,
-uninstall and recovery paths on a temporary client folder.
+uninstall and recovery paths and the patch toggles and checklist on a
+temporary client folder.
 
 ## Credits
 

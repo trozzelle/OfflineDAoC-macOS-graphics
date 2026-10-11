@@ -6,14 +6,25 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from . import display, textures
+from . import display, patches, textures
 from .common import GfxError, check_app
 
 
-def registry(args) -> display.WineRegistry:
-    if not args.wine or not args.prefix:
-        raise GfxError("display commands need --wine <wine folder> and --prefix <wine prefix>")
-    return display.WineRegistry(Path(args.wine), Path(args.prefix))
+def registry_factory(args):
+    """The prefix registry, opened only when a patch needs it (Retina mode)."""
+    def get() -> display.WineRegistry:
+        if not args.wine or not args.prefix:
+            raise GfxError("Retina mode needs --wine <wine folder> and --prefix <wine prefix>")
+        return display.WineRegistry(Path(args.wine), Path(args.prefix))
+    return get
+
+
+def show_status(app: Path) -> None:
+    cat = patches.catalog()
+    for p, state in patches.states(app).items():
+        print(f"{p:<10} {state:<14} {cat[p]['title']}")
+    if display.conf_owner(app) == "your own":
+        print("mtld3d.conf is your own file; mtld3d patches stay off while it is there")
 
 
 def show_textures(app: Path) -> None:
@@ -27,37 +38,29 @@ def show_textures(app: Path) -> None:
         print(f"PENDING        : an interrupted '{pending}' operation; run 'textures recover'")
 
 
-def show_status(app: Path) -> None:
-    shown = display.status(app)
-    print(f"display preset : {shown['preset'] or 'none'}   (mtld3d.conf: {shown['conf']})")
-    show_textures(app)
-
-
 def run(args) -> None:
     app = check_app(Path(args.app))
-    if args.area == "status":
+    get_registry = registry_factory(args)
+    if args.command == "status":
         show_status(app)
-    elif args.area == "display":
-        if args.action == "list":
-            for name, preset in display.presets().items():
-                print(f"{name}\n    {preset['description']}")
-        elif args.action == "apply":
-            display.apply(app, registry(args), args.preset)
-            print(f"display preset '{args.preset}' applied; it takes effect at the next client launch")
-        elif args.action == "revert":
-            name = display.revert(app, registry(args))
-            print(f"display preset '{name}' reverted" if name else "no display preset applied")
-        elif args.action == "status":
-            shown = display.status(app)
-            print(f"preset      : {shown['preset'] or 'none'}")
-            print(f"mtld3d.conf : {shown['conf']}")
-            if args.wine and args.prefix:
-                print(f"RetinaMode  : {registry(args).retina() or 'not set'}")
-    elif args.area == "textures":
+    elif args.command == "list":
+        for p, spec in patches.catalog().items():
+            print(f"{p}\n    {spec['title']}. {spec['description']}")
+    elif args.command in ("enable", "disable"):
+        ids = set(args.patch)
+        archives = [Path(a).expanduser() for a in (getattr(args, "archives", None) or [])]
+        patches.change(app, ids if args.command == "enable" else set(),
+                       ids if args.command == "disable" else set(), get_registry, archives)
+        show_status(app)
+        print("Changes take effect at the next client launch.")
+    elif args.command == "select":
+        if not sys.stdin.isatty():
+            raise GfxError("select needs a terminal; use enable/disable <patch>...")
+        patches.select(app, get_registry)
+    elif args.command == "textures":
         archives = [Path(a).expanduser() for a in getattr(args, "archives", [])]
         if args.action == "inspect":
-            inventory = textures.inspect(app, archives)
-            for name, count in inventory.items():
+            for name, count in textures.inspect(app, archives).items():
                 print(f"{name:<16} {count:>7} files   now: {textures.detect(app, name)}")
         elif args.action == "install":
             done = textures.install(app, archives, args.component)
@@ -80,19 +83,19 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="daoc-gfx", description="Graphical patches for the DAoC 1.127 client "
                                 "under Wine on macOS (OfflineDAoC-macOS).")
     p.add_argument("--app", required=True, help="client app folder (the one holding game.dll)")
-    p.add_argument("--prefix", help="wine prefix the client runs in (display commands)")
-    p.add_argument("--wine", help="wine folder with bin/wine (display commands)")
-    areas = p.add_subparsers(dest="area", required=True)
-    areas.add_parser("status", help="what is applied to this client")
+    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode)")
+    p.add_argument("--wine", help="wine folder with bin/wine (Retina mode)")
+    commands = p.add_subparsers(dest="command", required=True)
+    commands.add_parser("status", help="each patch and whether it is on")
+    commands.add_parser("list", help="the patches and what each does")
+    commands.add_parser("select", help="choose the patches to turn on from a checklist")
+    on = commands.add_parser("enable", help="turn patches on")
+    on.add_argument("patch", nargs="+")
+    on.add_argument("--archives", nargs="+", metavar="ARCHIVE",
+                    help="the texture pack's archives, every part (only to install it)")
+    commands.add_parser("disable", help="turn patches off").add_argument("patch", nargs="+")
 
-    d = areas.add_parser("display", help="display presets (Retina mode, mtld3d.conf)")
-    da = d.add_subparsers(dest="action", required=True)
-    da.add_parser("list", help="the presets and what each does")
-    da.add_parser("apply", help="apply a preset").add_argument("preset")
-    da.add_parser("revert", help="restore the settings from before the first preset")
-    da.add_parser("status", help="the applied preset and the current Retina mode")
-
-    t = areas.add_parser("textures", help="texture packs from archives you downloaded")
+    t = commands.add_parser("textures", help="texture-pack folders in detail")
     ta = t.add_subparsers(dest="action", required=True)
     ins = ta.add_parser("inspect", help="list the client folders an archive set replaces")
     ins.add_argument("archives", nargs="+")
@@ -116,4 +119,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except GfxError as e:
         print(f"daoc-gfx: {e}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("\ndaoc-gfx: interrupted", file=sys.stderr)
+        return 130
     return 0
