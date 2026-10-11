@@ -20,10 +20,12 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `retina` | Wine's Retina mode: render at the panel's physical resolution | The prefix's Retina setting from before it was turned on |
 | `srgb` | [mtld3d](https://github.com/athei/mtld3d) `color.space = accurate` in `mtld3d.conf` | The key is gone (and the file, when no other patch needs it) |
 | `textures` | A texture pack's files over the client's folders, originals kept | Original files live, the pack kept aside for an instant switch back |
+| `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed launcher set to load it | Proxy and its level file removed, the launcher's line back as it was |
 
-Every change is recorded in `.daoc-gfx/` inside the client's app folder, and
-every command that changes something refuses to run while the client is running
-from that folder. Changes take effect at the next client launch.
+Every change is recorded in `.daoc-gfx/` inside the client's app folder (the
+`anisotropy` patch's own files mark themselves), and every command that changes
+something refuses to run while the client is running from that folder. Changes
+take effect at the next client launch.
 
 ## Requirements
 
@@ -31,6 +33,8 @@ from that folder. Changes take effect at the next client launch.
 - `python3` 3.9 or newer (the Xcode Command Line Tools one is enough); nothing to install
 - For `retina`: the CrossOver-based Wine and the prefix the client runs in
   (`dist/wine` and `dist/prefix` of an OfflineDAoC-macOS install)
+- For `anisotropy`: the OfflineDAoC-macOS launcher, `dist/DAoCLauncher.app`
+  (found from the client folder; `--launcher <.app>` names another)
 
 Archives are read with macOS's own `bsdtar`, which handles `.7z`, `.zip` and tar files.
 
@@ -50,13 +54,16 @@ daoc-gfx … select                         # checklist: toggle by number, Enter
 daoc-gfx … status                         # each patch and whether it is on
 daoc-gfx … list                           # the patches and what each does
 daoc-gfx … enable retina srgb
+daoc-gfx … enable anisotropy --level 8   # level only for anisotropy: 2, 4, 8 or 16
 daoc-gfx … enable textures --archives A.7z B.7z   # archives only to install the pack
 daoc-gfx … disable srgb textures
 ```
 
-The checklist marks a patch `[x]` when it is on, and `[~]` when only some of
-the texture pack's folders have their pack files live (left as they are unless
-you toggle it). Turning `textures` on before a pack is installed asks for its
+The checklist marks a patch `[x]` when it is on, and `[~]` when it is partly on:
+only some of the texture pack's folders have their pack files live, or
+`anisotropy` lost its launcher line to a reinstall or has an older proxy build
+after a daoc-gfx update (left as they are unless you
+toggle them). Turning `textures` on before a pack is installed asks for its
 archives; drag every part into the terminal.
 
 Texture-pack folders in detail:
@@ -87,6 +94,49 @@ daoc-gfx … textures status
 `mtld3d.conf` is written next to `game.dll` with a first-line marker. A
 `mtld3d.conf` of your own (no marker) is never overwritten or deleted: mtld3d
 patches are refused instead, and `retina` still works.
+
+### Anisotropic filtering
+
+DAoC never asks for anisotropic filtering, and mtld3d uses it only when a game
+does, so textures seen at a shallow angle (ground, roads, walls) blur a few
+metres out. `anisotropy` puts a 32-bit `d3d9.dll` (source in [`proxy/`](proxy))
+next to `game.dll`. It loads the system `d3d9.dll` (mtld3d), passes every call
+through, and rewrites only the sampler states it sends: a texture stage the game
+filters linearly with mipmaps, with a texture of more than one level bound, gets
+`D3DTEXF_ANISOTROPIC` at the chosen level (DXVK's `d3d9.samplerAnisotropy`
+rule). Bilinear passes without mipmaps, single-level render targets and
+point-filtered stages keep the game's own filtering. The game always reads back
+the values it set, including after state blocks and device resets.
+
+The level is 2x, 4x, 8x or 16x (the default). The checklist asks for it when
+the patch is turned on, offering the current one; `enable anisotropy --level N`
+sets it from the command line, and running it while the patch is on changes it.
+`status` shows it (`Anisotropic filtering, 8x`). It lives in
+`daoc-gfx-d3d9.conf` next to `game.dll`, which the proxy reads when the client
+starts; without that file the proxy uses 16x. Higher levels cost GPU time only,
+not game-thread time, so 16x is the sensible choice unless you prefer the
+softer look of a lower one.
+
+The launcher that OfflineDAoC-macOS installs exports
+`WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"`, which keeps Wine from
+loading any `d3d9.dll` in the client folder. Turning the patch on changes that
+default to `d3d9=n,b;dxgi=b` in the installed copy
+(`dist/DAoCLauncher.app/Contents/MacOS/launch`) and marks the line; turning it
+off puts the original line back. `install-client.sh` copies a fresh launcher, so
+after a reinstall the patch shows `partly on`; enable it again. The same goes
+for a daoc-gfx update that ships a rebuilt `d3d9.dll`: the proxy next to
+`game.dll` is then an older build, and enabling the patch again replaces it. A
+`DAOC_DLL_OVERRIDES` you set yourself still replaces the default, and with
+`d3d9=b` in it the proxy is not loaded.
+
+Only one `d3d9.dll` can sit next to `game.dll`: a ReShade or other wrapper
+already there is refused, never replaced.
+
+The proxy writes `daoc-gfx-d3d9.log` next to `game.dll`: the real d3d9 it
+loaded, the level, each device it hooked, the first sampler it forced, and
+per-device totals at exit. To see the Metal samplers mtld3d creates, start the
+client with `RUST_LOG='mtld3d::d3d9=info,mtld3d::d3d9::sampler=trace'`; each new
+sampler logs a `sampler diag … aniso=<level>` line in `mtld3d-logs/`.
 
 ### Texture packs
 
@@ -146,7 +196,20 @@ python3 -m unittest discover -s tests
 
 The tests build small `.7z` packs with `bsdtar` and run the install, switch,
 uninstall and recovery paths and the patch toggles and checklist on a
-temporary client folder.
+temporary client folder. The anisotropy tests patch a stand-in launcher. The
+sampler rule (`proxy/sampler.c`) is compiled for the host with `cc` and run
+through its transitions, and a test checks that the committed
+`daoc_gfx/d3d9.dll` was built from the current `proxy/` sources.
+
+`daoc_gfx/d3d9.dll` is committed so users need no compiler. After changing
+anything in `proxy/`, rebuild it with mingw-w64 (`brew install mingw-w64`) and
+commit it. The committed DLL was built with Homebrew's mingw-w64 14.0.0
+(`i686-w64-mingw32-gcc` 16.2.0), which rebuilds it byte for byte; other
+versions build a different file.
+
+```bash
+make -C proxy
+```
 
 ## Credits
 

@@ -7,7 +7,7 @@ import shlex
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Sequence, Set
 
-from . import display, textures
+from . import anisotropy, display, textures
 from .common import GfxError, game_running
 
 CATALOG_FILE = Path(__file__).with_name("patches.json")
@@ -44,27 +44,43 @@ def texture_state(app: Path) -> str:
     return NEEDS_RECOVER
 
 
-def states(app: Path) -> Dict[str, str]:
+def states(app: Path, launcher: Optional[Path] = None) -> Dict[str, str]:
     cat = catalog()
     shown = set(display.enabled(app))
-    return {p: (texture_state(app) if spec["kind"] == "textures" else (ON if p in shown else OFF))
-            for p, spec in cat.items()}
+
+    def one(p: str, kind: str) -> str:
+        if kind == "textures":
+            return texture_state(app)
+        if kind == "anisotropy":
+            return anisotropy.state(app, launcher)
+        return ON if p in shown else OFF
+    return {p: one(p, spec["kind"]) for p, spec in cat.items()}
 
 
 def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callable,
-           archives: Optional[Sequence[Path]] = None, is_running=game_running, log=print) -> None:
-    """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone."""
+           archives: Optional[Sequence[Path]] = None, is_running=game_running, log=print,
+           launcher: Optional[Path] = None, level: Optional[int] = None) -> None:
+    """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone.
+    `level` is the anisotropy patch's level, when it is being turned on."""
     cat = catalog()
     check_ids(cat, enable | disable)
     both = enable & disable
     if both:
         raise GfxError(f"both on and off: {', '.join(sorted(both))}")
+    if level is not None and not any(cat[p]["kind"] == "anisotropy" for p in enable):
+        raise GfxError("a level is only for enable anisotropy")
 
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))
     wanted = (current | (enable & display_ids)) - disable
     if wanted != current:
         display.apply(app, cat, wanted, get_registry, is_running)
+
+    for p in (p for p in cat if cat[p]["kind"] == "anisotropy"):
+        if p in enable:
+            anisotropy.enable(app, launcher, is_running, level)
+        elif p in disable:
+            anisotropy.disable(app, launcher, is_running)
 
     for p in (p for p in cat if cat[p]["kind"] == "textures"):
         state = texture_state(app)
@@ -83,11 +99,11 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
 
 
 def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input, out=print,
-           is_running=game_running, log=print) -> bool:
+           is_running=game_running, log=print, launcher: Optional[Path] = None) -> bool:
     """Interactive checklist. Returns whether anything changed."""
     cat = catalog()
     ids = list(cat)
-    current = states(app)
+    current = states(app, launcher)
     chosen = {p for p in ids if current[p] == ON}
     partly = {p for p in ids if current[p] == PARTLY_ON}  # left as is unless toggled
     while True:
@@ -128,7 +144,11 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
         except EOFError:
             raw = ""
         archives = [Path(a).expanduser() for a in shlex.split(raw)]
-    change(app, enable, disable, get_registry, archives, is_running=is_running, log=log)
+    level = None
+    if any(cat[p]["kind"] == "anisotropy" for p in enable):
+        level = ask_level(app, ask, out)
+    change(app, enable, disable, get_registry, archives, is_running=is_running, log=log, launcher=launcher,
+           level=level)
     for p in ids:
         if p in enable:
             out(f"on : {cat[p]['title']}")
@@ -136,3 +156,19 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
             out(f"off: {cat[p]['title']}")
     out("Changes take effect at the next client launch.")
     return True
+
+
+def ask_level(app: Path, ask: Callable[[str], str], out=print) -> int:
+    choices = "/".join(map(str, anisotropy.LEVELS))
+    current = anisotropy.level(app)
+    default = current if current in anisotropy.LEVELS else anisotropy.DEFAULT_LEVEL
+    while True:
+        try:
+            raw = ask(f"Anisotropic filtering level, {choices} [{default}]: ").strip().rstrip("xX")
+        except EOFError:
+            raw = ""
+        if not raw:
+            return default
+        if raw.isdigit() and int(raw) in anisotropy.LEVELS:
+            return int(raw)
+        out(f"not a level: {raw} (choose {choices})")

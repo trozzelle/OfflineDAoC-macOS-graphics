@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from . import display, patches, textures
+from . import anisotropy, display, patches, textures
 from .common import GfxError, check_app
 
 
@@ -19,10 +19,11 @@ def registry_factory(args):
     return get
 
 
-def show_status(app: Path) -> None:
+def show_status(app: Path, launcher: Optional[Path]) -> None:
     cat = patches.catalog()
-    for p, state in patches.states(app).items():
-        print(f"{p:<10} {state:<14} {cat[p]['title']}")
+    for p, state in patches.states(app, launcher).items():
+        detail = f", {anisotropy.level(app)}x" if cat[p]["kind"] == "anisotropy" and state != "off" else ""
+        print(f"{p:<10} {state:<14} {cat[p]['title']}{detail}")
     if display.conf_owner(app) == "your own":
         print("mtld3d.conf is your own file; mtld3d patches stay off while it is there")
 
@@ -41,8 +42,9 @@ def show_textures(app: Path) -> None:
 def run(args) -> None:
     app = check_app(Path(args.app))
     get_registry = registry_factory(args)
+    launcher = Path(args.launcher) if args.launcher else None
     if args.command == "status":
-        show_status(app)
+        show_status(app, launcher)
     elif args.command == "list":
         for p, spec in patches.catalog().items():
             print(f"{p}\n    {spec['title']}. {spec['description']}")
@@ -50,13 +52,14 @@ def run(args) -> None:
         ids = set(args.patch)
         archives = [Path(a).expanduser() for a in (getattr(args, "archives", None) or [])]
         patches.change(app, ids if args.command == "enable" else set(),
-                       ids if args.command == "disable" else set(), get_registry, archives)
-        show_status(app)
+                       ids if args.command == "disable" else set(), get_registry, archives,
+                       launcher=launcher, level=getattr(args, "level", None))
+        show_status(app, launcher)
         print("Changes take effect at the next client launch.")
     elif args.command == "select":
         if not sys.stdin.isatty():
             raise GfxError("select needs a terminal; use enable/disable <patch>...")
-        patches.select(app, get_registry)
+        patches.select(app, get_registry, launcher=launcher)
     elif args.command == "textures":
         archives = [Path(a).expanduser() for a in getattr(args, "archives", [])]
         if args.action == "inspect":
@@ -85,6 +88,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--app", required=True, help="client app folder (the one holding game.dll)")
     p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode)")
     p.add_argument("--wine", help="wine folder with bin/wine (Retina mode)")
+    p.add_argument("--launcher", help="OfflineDAoC-macOS launcher .app (anisotropy; default: "
+                                      "DAoCLauncher.app beside the client's OfflineDAoC folder)")
     commands = p.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="each patch and whether it is on")
     commands.add_parser("list", help="the patches and what each does")
@@ -93,6 +98,8 @@ def parser() -> argparse.ArgumentParser:
     on.add_argument("patch", nargs="+")
     on.add_argument("--archives", nargs="+", metavar="ARCHIVE",
                     help="the texture pack's archives, every part (only to install it)")
+    on.add_argument("--level", type=int, choices=anisotropy.LEVELS,
+                    help="anisotropic filtering level (anisotropy only; default: the current one, else 16)")
     commands.add_parser("disable", help="turn patches off").add_argument("patch", nargs="+")
 
     t = commands.add_parser("textures", help="texture-pack folders in detail")
