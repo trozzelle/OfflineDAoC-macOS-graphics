@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""daoc-gfx - graphical patches for the DAoC client under Wine on macOS. See README.md."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from daoc_gfx.cli import main  # noqa: E402
+
+sys.exit(main())

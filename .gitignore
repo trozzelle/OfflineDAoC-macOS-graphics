@@ -1,0 +1,13 @@
+# Texture-pack archives and client files never belong in this repository
+*.7z
+*.zip
+*.dds
+*.mpk
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+._*
