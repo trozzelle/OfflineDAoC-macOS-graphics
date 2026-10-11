@@ -16,5 +16,10 @@
     "kind": "textures",
     "title": "Texture pack",
     "description": "Pack files from archives you downloaded (e.g. Sqeak's DAoC Textures) over the client's folders. Off keeps the pack aside and puts the original files back."
+  },
+  "anisotropy": {
+    "kind": "anisotropy",
+    "title": "Anisotropic filtering (16x)",
+    "description": "Ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. A small d3d9.dll next to game.dll has mtld3d filter the game's mipmapped textures at 16x; the installed launcher is set to load it first."
   }
 }

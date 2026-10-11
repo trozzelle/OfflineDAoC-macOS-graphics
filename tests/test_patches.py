@@ -49,7 +49,8 @@ class EnableDisable(Patches):
         self.assertIn("color.space = accurate", self.conf.read_text())
         self.change(disable=["srgb"])
         self.assertFalse(self.conf.exists())
-        self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed"})
+        self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed",
+                                         "anisotropy": "off"})
 
     def test_your_own_mtld3d_conf_blocks_only_mtld3d_patches(self):
         self.conf.write_text("render.scale = 0.75\n")
@@ -81,9 +82,11 @@ class Select(Patches):
     def test_checklist_turns_on_and_off_only_what_was_toggled(self):
         changed, _ = self.select("1 2", "")
         self.assertTrue(changed)
-        self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed"})
+        self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed",
+                                         "anisotropy": "off"})
         self.select("2", "")
-        self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed"})
+        self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed",
+                                         "anisotropy": "off"})
         self.assertEqual(self.registry.value, "y")
 
     def test_toggling_twice_or_quitting_changes_nothing(self):
