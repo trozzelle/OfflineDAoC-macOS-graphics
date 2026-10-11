@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from . import display, patches, textures
+from . import anisotropy, display, patches, textures
 from .common import GfxError, check_app
 
 
@@ -22,7 +22,8 @@ def registry_factory(args):
 def show_status(app: Path, launcher: Optional[Path]) -> None:
     cat = patches.catalog()
     for p, state in patches.states(app, launcher).items():
-        print(f"{p:<10} {state:<14} {cat[p]['title']}")
+        detail = f", {anisotropy.level(app)}x" if cat[p]["kind"] == "anisotropy" and state != "off" else ""
+        print(f"{p:<10} {state:<14} {cat[p]['title']}{detail}")
     if display.conf_owner(app) == "your own":
         print("mtld3d.conf is your own file; mtld3d patches stay off while it is there")
 
@@ -52,7 +53,7 @@ def run(args) -> None:
         archives = [Path(a).expanduser() for a in (getattr(args, "archives", None) or [])]
         patches.change(app, ids if args.command == "enable" else set(),
                        ids if args.command == "disable" else set(), get_registry, archives,
-                       launcher=launcher)
+                       launcher=launcher, level=getattr(args, "level", None))
         show_status(app, launcher)
         print("Changes take effect at the next client launch.")
     elif args.command == "select":
@@ -97,6 +98,8 @@ def parser() -> argparse.ArgumentParser:
     on.add_argument("patch", nargs="+")
     on.add_argument("--archives", nargs="+", metavar="ARCHIVE",
                     help="the texture pack's archives, every part (only to install it)")
+    on.add_argument("--level", type=int, choices=anisotropy.LEVELS,
+                    help="anisotropic filtering level (anisotropy only; default: the current one, else 16)")
     commands.add_parser("disable", help="turn patches off").add_argument("patch", nargs="+")
 
     t = commands.add_parser("textures", help="texture-pack folders in detail")

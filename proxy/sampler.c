@@ -72,3 +72,47 @@ void gfx_resync(gfx_stage *st, uint32_t dev_min, uint32_t dev_mip, uint32_t dev_
     st->sent_min = dev_min;
     st->sent_maxaniso = dev_maxaniso;
 }
+
+static int blank(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r';
+}
+
+uint32_t gfx_parse_level(const char *text, size_t len)
+{
+    static const char key[] = "anisotropy";
+    size_t i = 0;
+    while (i < len) {
+        size_t end = i, k;
+        uint32_t value = 0;
+        int digits = 0;
+        while (end < len && text[end] != '\n')
+            end++;
+        while (i < end && blank(text[i]))
+            i++;
+        for (k = 0; key[k] && i + k < end && text[i + k] == key[k]; k++)
+            ;
+        if (!key[k]) {
+            i += k;
+            while (i < end && blank(text[i]))
+                i++;
+            if (i < end && text[i] == '=') {
+                i++;
+                while (i < end && blank(text[i]))
+                    i++;
+                while (i < end && text[i] >= '0' && text[i] <= '9' && digits < 3) {
+                    value = value * 10 + (uint32_t)(text[i] - '0');
+                    digits++;
+                    i++;
+                }
+                while (i < end && blank(text[i]))
+                    i++;
+                if (i == end && digits && value >= 1 && value <= GFX_LEVEL_MAX)
+                    return value;
+                return 0;
+            }
+        }
+        i = end + 1;
+    }
+    return 0;
+}

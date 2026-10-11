@@ -20,7 +20,7 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `retina` | Wine's Retina mode: render at the panel's physical resolution | The prefix's Retina setting from before it was turned on |
 | `srgb` | [mtld3d](https://github.com/athei/mtld3d) `color.space = accurate` in `mtld3d.conf` | The key is gone (and the file, when no other patch needs it) |
 | `textures` | A texture pack's files over the client's folders, originals kept | Original files live, the pack kept aside for an instant switch back |
-| `anisotropy` | 16x anisotropic filtering: a small `d3d9.dll` next to `game.dll`, and the installed launcher set to load it | Proxy removed, the launcher's line back as it was |
+| `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed launcher set to load it | Proxy and its level file removed, the launcher's line back as it was |
 
 Every change is recorded in `.daoc-gfx/` inside the client's app folder (the
 `anisotropy` patch's own files mark themselves), and every command that changes
@@ -54,6 +54,7 @@ daoc-gfx … select                         # checklist: toggle by number, Enter
 daoc-gfx … status                         # each patch and whether it is on
 daoc-gfx … list                           # the patches and what each does
 daoc-gfx … enable retina srgb
+daoc-gfx … enable anisotropy --level 8   # level only for anisotropy: 2, 4, 8 or 16
 daoc-gfx … enable textures --archives A.7z B.7z   # archives only to install the pack
 daoc-gfx … disable srgb textures
 ```
@@ -101,10 +102,19 @@ metres out. `anisotropy` puts a 32-bit `d3d9.dll` (source in [`proxy/`](proxy))
 next to `game.dll`. It loads the system `d3d9.dll` (mtld3d), passes every call
 through, and rewrites only the sampler states it sends: a texture stage the game
 filters linearly with mipmaps, with a texture of more than one level bound, gets
-`D3DTEXF_ANISOTROPIC` at 16x (DXVK's `d3d9.samplerAnisotropy` rule). Bilinear
-passes without mipmaps, single-level render targets and point-filtered stages
-keep the game's own filtering. The game always reads back the values it set,
-including after state blocks and device resets.
+`D3DTEXF_ANISOTROPIC` at the chosen level (DXVK's `d3d9.samplerAnisotropy`
+rule). Bilinear passes without mipmaps, single-level render targets and
+point-filtered stages keep the game's own filtering. The game always reads back
+the values it set, including after state blocks and device resets.
+
+The level is 2x, 4x, 8x or 16x (the default). The checklist asks for it when
+the patch is turned on, offering the current one; `enable anisotropy --level N`
+sets it from the command line, and running it while the patch is on changes it.
+`status` shows it (`Anisotropic filtering, 8x`). It lives in
+`daoc-gfx-d3d9.conf` next to `game.dll`, which the proxy reads when the client
+starts; without that file the proxy uses 16x. Higher levels cost GPU time only,
+not game-thread time, so 16x is the sensible choice unless you prefer the
+softer look of a lower one.
 
 The launcher that OfflineDAoC-macOS installs exports
 `WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"`, which keeps Wine from
@@ -120,10 +130,10 @@ Only one `d3d9.dll` can sit next to `game.dll`: a ReShade or other wrapper
 already there is refused, never replaced.
 
 The proxy writes `daoc-gfx-d3d9.log` next to `game.dll`: the real d3d9 it
-loaded, each device it hooked, the first sampler it forced, and per-device totals
-at exit. To see the Metal samplers mtld3d creates, start the client with
-`RUST_LOG='mtld3d::d3d9=info,mtld3d::d3d9::sampler=trace'`; each new sampler
-logs a `sampler diag … aniso=16` line in `mtld3d-logs/`.
+loaded, the level, each device it hooked, the first sampler it forced, and
+per-device totals at exit. To see the Metal samplers mtld3d creates, start the
+client with `RUST_LOG='mtld3d::d3d9=info,mtld3d::d3d9::sampler=trace'`; each new
+sampler logs a `sampler diag … aniso=<level>` line in `mtld3d-logs/`.
 
 ### Texture packs
 

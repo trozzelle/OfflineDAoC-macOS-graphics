@@ -59,13 +59,16 @@ def states(app: Path, launcher: Optional[Path] = None) -> Dict[str, str]:
 
 def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callable,
            archives: Optional[Sequence[Path]] = None, is_running=game_running, log=print,
-           launcher: Optional[Path] = None) -> None:
-    """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone."""
+           launcher: Optional[Path] = None, level: Optional[int] = None) -> None:
+    """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone.
+    `level` is the anisotropy patch's level, when it is being turned on."""
     cat = catalog()
     check_ids(cat, enable | disable)
     both = enable & disable
     if both:
         raise GfxError(f"both on and off: {', '.join(sorted(both))}")
+    if level is not None and not any(cat[p]["kind"] == "anisotropy" for p in enable):
+        raise GfxError("a level is only for enable anisotropy")
 
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))
@@ -75,7 +78,7 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
 
     for p in (p for p in cat if cat[p]["kind"] == "anisotropy"):
         if p in enable:
-            anisotropy.enable(app, launcher, is_running)
+            anisotropy.enable(app, launcher, is_running, level)
         elif p in disable:
             anisotropy.disable(app, launcher, is_running)
 
@@ -141,7 +144,11 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
         except EOFError:
             raw = ""
         archives = [Path(a).expanduser() for a in shlex.split(raw)]
-    change(app, enable, disable, get_registry, archives, is_running=is_running, log=log, launcher=launcher)
+    level = None
+    if any(cat[p]["kind"] == "anisotropy" for p in enable):
+        level = ask_level(app, ask, out)
+    change(app, enable, disable, get_registry, archives, is_running=is_running, log=log, launcher=launcher,
+           level=level)
     for p in ids:
         if p in enable:
             out(f"on : {cat[p]['title']}")
@@ -149,3 +156,18 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
             out(f"off: {cat[p]['title']}")
     out("Changes take effect at the next client launch.")
     return True
+
+
+def ask_level(app: Path, ask: Callable[[str], str], out=print) -> int:
+    choices = "/".join(map(str, anisotropy.LEVELS))
+    default = anisotropy.level(app)
+    while True:
+        try:
+            raw = ask(f"Anisotropic filtering level, {choices} [{default}]: ").strip().rstrip("xX")
+        except EOFError:
+            raw = ""
+        if not raw:
+            return default
+        if raw.isdigit() and int(raw) in anisotropy.LEVELS:
+            return int(raw)
+        out(f"not a level: {raw} (choose {choices})")

@@ -12,8 +12,9 @@
  * other call goes straight to it and identity checks see the same pointers.
  * The copy is freed when the object's last reference goes.
  *
- * Writes `daoc-gfx-d3d9.log` next to this DLL (one line per event, not per
- * call).
+ * Reads the forced level from `daoc-gfx-d3d9.conf` next to this DLL (16 when
+ * it is missing) and writes `daoc-gfx-d3d9.log` there (one line per event,
+ * not per call).
  */
 #define COBJMACROS
 #define INITGUID
@@ -31,7 +32,7 @@
 /* Recognised by daoc-gfx (and by `strings`) as this proxy and its source. */
 __attribute__((used)) static const char marker[] = "daoc-gfx d3d9 anisotropy proxy, source " SOURCE_HASH;
 
-#define ANISOTROPY 16
+static uint32_t aniso_level = GFX_LEVEL_DEFAULT;
 
 #define SLOT(vtbl, method) (offsetof(vtbl, method) / sizeof(void *))
 #define SLOTS(vtbl) (sizeof(vtbl) / sizeof(void *))
@@ -60,19 +61,50 @@ static void log_line(const char *fmt, ...)
     WriteFile(log_file, buf, n, &written, NULL);
 }
 
-static void open_log(void)
+/* `name` in this DLL's folder, in `path`; FALSE when it does not fit. */
+static BOOL beside(WCHAR path[MAX_PATH], const WCHAR *name)
 {
-    WCHAR path[MAX_PATH];
     DWORD n = GetModuleFileNameW(self_module, path, MAX_PATH);
     WCHAR *slash;
     if (!n || n >= MAX_PATH)
-        return;
+        return FALSE;
     slash = wcsrchr(path, L'\\');
-    if (!slash || (slash - path) + 20 >= MAX_PATH)
+    if (!slash || (size_t)(slash - path) + 1 + lstrlenW(name) >= MAX_PATH)
+        return FALSE;
+    lstrcpyW(slash + 1, name);
+    return TRUE;
+}
+
+static void open_log(void)
+{
+    WCHAR path[MAX_PATH];
+    if (beside(path, L"daoc-gfx-d3d9.log"))
+        log_file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+}
+
+static void read_level(void)
+{
+    WCHAR path[MAX_PATH];
+    char text[1024];
+    DWORD got = 0;
+    HANDLE f;
+    uint32_t level;
+    if (!beside(path, L"daoc-gfx-d3d9.conf"))
         return;
-    lstrcpyW(slash + 1, L"daoc-gfx-d3d9.log");
-    log_file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, NULL);
+    f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) {
+        log_line("no daoc-gfx-d3d9.conf: anisotropy %lux", (unsigned long)aniso_level);
+        return;
+    }
+    ReadFile(f, text, sizeof(text), &got, NULL);
+    CloseHandle(f);
+    level = gfx_parse_level(text, got);
+    if (level)
+        aniso_level = level;
+    else
+        log_line("daoc-gfx-d3d9.conf has no valid 'anisotropy = 1..%u' line", GFX_LEVEL_MAX);
+    log_line("anisotropy %lux", (unsigned long)aniso_level);
 }
 
 /* ------------------------------------------------------- the real d3d9 */
@@ -208,7 +240,7 @@ static HRESULT reconcile(dev_rec *d, DWORD s)
 {
     uint32_t min, maxaniso;
     HRESULT hr = D3D_OK, r;
-    int writes = gfx_reconcile(&d->st[s], ANISOTROPY, &min, &maxaniso);
+    int writes = gfx_reconcile(&d->st[s], aniso_level, &min, &maxaniso);
     if (writes & GFX_WRITE_MAXANISO) {
         r = real_set(d, s, D3DSAMP_MAXANISOTROPY, maxaniso);
         if (FAILED(r))
@@ -223,8 +255,8 @@ static HRESULT reconcile(dev_rec *d, DWORD s)
     }
     if (writes && !d->forced_once && gfx_forces(&d->st[s])) {
         d->forced_once = 1;
-        log_line("device %p: first forced sampler (stage %lu, %lu levels, %ux)", d->self, s,
-                 (unsigned long)d->st[s].levels, ANISOTROPY);
+        log_line("device %p: first forced sampler (stage %lu, %lu levels, %lux)", d->self, s,
+                 (unsigned long)d->st[s].levels, (unsigned long)aniso_level);
     }
     return hr;
 }
@@ -426,7 +458,7 @@ static void hook_device(IDirect3DDevice9 *dev)
     d->vtbl[DEV_SLOT(EndStateBlock)] = (void *)dev_EndStateBlock;
     if (ex)
         d->vtbl[SLOT(IDirect3DDevice9ExVtbl, ResetEx)] = (void *)dev_ResetEx;
-    log_line("device %p hooked%s: anisotropy %ux", dev, ex ? " (Ex)" : "", ANISOTROPY);
+    log_line("device %p hooked%s: anisotropy %lux", dev, ex ? " (Ex)" : "", (unsigned long)aniso_level);
 }
 
 /* --------------------------------------------------------- IDirect3D9 */
@@ -573,6 +605,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         InitializeCriticalSection(&init_lock);
         open_log();
         log_line("%s", marker);
+        read_level();
     }
     return TRUE;
 }

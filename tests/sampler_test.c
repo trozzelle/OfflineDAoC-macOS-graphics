@@ -165,6 +165,28 @@ static void reset_forgets_everything(void)
     EXPECT(st.sent_min == GFX_TEXF_POINT && st.sent_maxaniso == 1 && st.levels == 0);
 }
 
+#define PARSE(text) gfx_parse_level(text, sizeof(text) - 1)
+
+static void level_lines_are_parsed(void)
+{
+    EXPECT(PARSE("anisotropy = 8\n") == 8);
+    EXPECT(PARSE("# Written by daoc-gfx\r\n\r\n  anisotropy=4\r\n") == 4);
+    EXPECT(PARSE("other = 2\nanisotropy = 16") == 16);
+    EXPECT(PARSE("anisotropy = 2\nanisotropy = 8\n") == 2); /* the first one counts */
+}
+
+static void bad_or_missing_levels_are_rejected(void)
+{
+    EXPECT(PARSE("") == 0);
+    EXPECT(PARSE("# anisotropy = 8\n") == 0);
+    EXPECT(PARSE("anisotropy = 0\n") == 0);
+    EXPECT(PARSE("anisotropy = 17\n") == 0);
+    EXPECT(PARSE("anisotropy = 8x\n") == 0);
+    EXPECT(PARSE("anisotropy = 0008\n") == 0);
+    EXPECT(PARSE("anisotropy =\n") == 0);
+    EXPECT(PARSE("anisotropy_level = 8\n") == 0);
+}
+
 int main(void)
 {
     defaults_are_not_forced();
@@ -179,5 +201,7 @@ int main(void)
     resync_to_unforced_values_forces_again();
     resync_keeps_the_game_anisotropy_once_it_asked();
     reset_forgets_everything();
+    level_lines_are_parsed();
+    bad_or_missing_levels_are_rejected();
     return failures ? 1 : 0;
 }

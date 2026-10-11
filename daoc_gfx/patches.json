@@ -19,7 +19,7 @@
   },
   "anisotropy": {
     "kind": "anisotropy",
-    "title": "Anisotropic filtering (16x)",
-    "description": "Ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. A small d3d9.dll next to game.dll has mtld3d filter the game's mipmapped textures at 16x; the installed launcher is set to load it first."
+    "title": "Anisotropic filtering",
+    "description": "Ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. A small d3d9.dll next to game.dll has mtld3d filter the game's mipmapped textures at 2x, 4x, 8x or 16x (asked when turned on; 16x by default); the installed launcher is set to load it first."
   }
 }

@@ -15,6 +15,7 @@
 #ifndef DAOC_GFX_SAMPLER_H
 #define DAOC_GFX_SAMPLER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* D3D9 values (d3d9types.h). */
@@ -73,5 +74,16 @@ int gfx_reconcile(gfx_stage *st, uint32_t level, uint32_t *min, uint32_t *maxani
  * asked for ANISOTROPIC itself. */
 void gfx_resync(gfx_stage *st, uint32_t dev_min, uint32_t dev_mip, uint32_t dev_maxaniso,
                 uint32_t levels);
+
+/* The forced level: daoc-gfx-d3d9.conf next to the DLL sets it (daoc-gfx
+ * writes 2, 4, 8 or 16), 16 without the file. mtld3d caps it at 16. */
+#define GFX_LEVEL_DEFAULT 16
+#define GFX_LEVEL_MAX 16
+
+/* The value of the first `anisotropy = N` line of a daoc-gfx-d3d9.conf text,
+ * N from 1 to GFX_LEVEL_MAX. Blank lines, `#` comments and other keys are
+ * skipped. Returns 0 when there is no such line or its value is not a whole
+ * number in range. */
+uint32_t gfx_parse_level(const char *text, size_t len);
 
 #endif

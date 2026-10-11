@@ -26,10 +26,10 @@ class Anisotropy(Fixture):
         os.chmod(self.script, 0o755)
         self.proxy = self.app / "d3d9.dll"
 
-    def change(self, enable=(), disable=(), launcher="default"):
+    def change(self, enable=(), disable=(), launcher="default", level=None):
         patches.change(self.app, set(enable), set(disable), lambda: None,
                        is_running=NOT_RUNNING, log=QUIET,
-                       launcher=self.launcher if launcher == "default" else launcher)
+                       launcher=self.launcher if launcher == "default" else launcher, level=level)
 
     def state(self):
         return patches.states(self.app, self.launcher)["anisotropy"]
@@ -49,6 +49,41 @@ class Anisotropy(Fixture):
         self.assertEqual(self.script.read_text(), STOCK_LAUNCHER)
         self.assertFalse(self.proxy.exists())
         self.assertFalse((self.app / anisotropy.PROXY_LOG).exists())
+        self.assertFalse((self.app / anisotropy.CONF).exists())
+
+    def test_the_level_is_set_kept_when_not_given_and_changed_while_on(self):
+        self.change(enable=["anisotropy"])
+        self.assertEqual(anisotropy.level(self.app), 16)
+        self.change(enable=["anisotropy"], level=4)
+        self.assertIn("anisotropy = 4\n", (self.app / anisotropy.CONF).read_text())
+        self.script.write_text(STOCK_LAUNCHER)  # a reinstall; enabling again keeps the level
+        self.change(enable=["anisotropy"])
+        self.assertEqual(anisotropy.level(self.app), 4)
+        self.assertEqual(self.state(), "on")
+
+    def test_a_level_needs_anisotropy_being_enabled_and_one_of_the_levels(self):
+        with self.assertRaisesRegex(GfxError, "only for enable anisotropy"):
+            self.change(enable=["srgb"], level=8)
+        with self.assertRaisesRegex(GfxError, "choose from 2, 4, 8, 16"):
+            self.change(enable=["anisotropy"], level=3)
+        self.assertFalse(self.proxy.exists())
+
+    def test_a_conf_without_a_valid_level_reads_as_the_default(self):
+        conf = self.app / anisotropy.CONF
+        for text, want in (("anisotropy = 8\n", 8), ("# anisotropy = 8\nanisotropy=2\r\n", 2),
+                           ("anisotropy = 32\n", 16), ("anisotropy = 8x\n", 16),
+                           ("anisotropy_max = 4\nanisotropy = 4\n", 4), ("", 16)):
+            conf.write_text(text)
+            self.assertEqual(anisotropy.level(self.app), want, text)
+
+    def test_the_checklist_asks_the_level_and_offers_the_current_one(self):
+        replies = iter(["4", "", "9", "8x"])
+        shown = []
+        patches.select(self.app, lambda: None, ask=lambda prompt: next(replies), out=shown.append,
+                       is_running=NOT_RUNNING, log=QUIET, launcher=self.launcher)
+        self.assertEqual(self.state(), "on")
+        self.assertIn("not a level: 9 (choose 2/4/8/16)", shown)
+        self.assertEqual(anisotropy.level(self.app), 8)
 
     def test_a_fresh_launcher_from_a_reinstall_leaves_it_partly_on_until_enabled_again(self):
         self.change(enable=["anisotropy"])
