@@ -50,6 +50,12 @@ STAGING = "staging"
 TAR = shutil.which("bsdtar") or "/usr/bin/tar"
 
 
+def finder_file(name: str) -> bool:
+    """Finder's folder settings (.DS_Store) or an AppleDouble file (._*): metadata macOS
+    writes into folders on its own, never part of a pack."""
+    return name == ".DS_Store" or name.startswith("._")
+
+
 # --- folder states --------------------------------------------------------------
 
 def detect(app: Path, name: str) -> str:
@@ -137,15 +143,17 @@ def inspect(app: Path, archives: Sequence[Path]) -> Dict[str, int]:
 
 def inspect_dir(app: Path, source: Path) -> Dict[str, int]:
     """inspect() for a pack folder: a folder laid out like a pack archive's top level
-    (what export writes). Refuses anything but plain files and folders as well. A client
-    folder with no files counts: export writes one for a component whose pack files all
-    equal the originals, and installing it keeps the component installed."""
+    (what export writes). Refuses anything but plain files and folders as well; Finder's
+    metadata files are skipped. A client folder with no files counts: export writes one for
+    a component whose pack files all equal the originals, and installing it keeps the
+    component installed."""
     if not source.is_dir():
         raise GfxError(f"pack folder not found: {source}")
     folders = client_folders(app)
     counts: Dict[str, int] = {}
     seen = set()
     for dirpath, dirnames, names in os.walk(source):
+        names = [n for n in names if not finder_file(n)]
         for n in dirnames + names:
             p = Path(dirpath) / n
             rel = p.relative_to(source)
@@ -249,6 +257,7 @@ def staged_files(staging: Path, folders: Dict[str, str],
     found = []
     for part in sorted(staging.iterdir()):
         for dirpath, dirnames, names in os.walk(part):
+            names = [n for n in names if not finder_file(n)]
             for n in dirnames + names:
                 p = Path(dirpath) / n
                 if p.is_symlink() or not (p.is_dir() or p.is_file()):
@@ -298,15 +307,22 @@ def begin(app: Path, journal: dict, is_running: Callable[[Path], bool]) -> Path:
 
 # --- operations -----------------------------------------------------------------
 
+def check_source(archives: Optional[Sequence[Path]], from_dir: Optional[Path], required: bool = True) -> None:
+    """A pack comes from its archives or from one pack folder: never both, and
+    (when `required`) one of them."""
+    if archives and from_dir is not None:
+        raise GfxError("give the pack's archives or a pack folder, not both")
+    if required and not archives and from_dir is None:
+        raise GfxError("no archive or pack folder given")
+
+
 def install(app: Path, archives: Optional[Sequence[Path]] = None, components: Optional[Sequence[str]] = None,
             is_running: Callable[[Path], bool] = game_running, log=print,
             from_dir: Optional[Path] = None) -> List[str]:
     """Install a pack from its archives, or from `from_dir`, a folder laid out like
     one (what export writes). Either source is staged first; from there on both
     take the same path."""
-    if bool(archives) == (from_dir is not None):
-        raise GfxError("give the pack's archives or a pack folder, not both" if archives
-                       else "no archive or pack folder given")
+    check_source(archives, from_dir)
     with operation_lock(app):
         if from_dir is None:
             inventory = inspect(app, archives)
@@ -402,7 +418,8 @@ def export(app: Path, dest: Path, components: Optional[Sequence[str]] = None,
         # By identity, not by name: on a case-insensitive volume .../App/x is inside .../app.
         if any(p.exists() and os.path.samefile(p, app) for p in (dest, *dest.parents)):
             raise GfxError(f"{dest} is inside the client folder; export to a folder outside it")
-        if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
+        # Finder leaves .DS_Store in a folder made or opened there; it does not count.
+        if dest.exists() and (not dest.is_dir() or any(not finder_file(p.name) for p in dest.iterdir())):
             raise GfxError(f"{dest} is not an empty folder; export to a new or empty one")
         dest.mkdir(parents=True, exist_ok=True)
         try:

@@ -331,6 +331,39 @@ class ExportAndInstallFromFolder(Fixture):
     def test_file_outside_a_folder_is_refused(self):
         self.assertFolderRefused(self.folder({"game.dll": b"evil"}), "is a file")
 
+    def test_finder_metadata_files_survive_the_round_trip(self):
+        self.install(self.pack())
+        installed = snapshot(self.app)
+        dest = self.tmp / "export"
+        dest.mkdir()
+        (dest / ".DS_Store").write_bytes(b"finder")  # a new folder made in Finder
+        self.export(dest)
+        for junk in (".DS_Store", "._.DS_Store", "zones/.DS_Store", "zones/textures/._a.dds"):
+            (dest / junk).write_bytes(b"finder")
+        textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+        self.assertEqual(self.install_from(dest), ["figures", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+
+    def test_round_trip_falls_back_to_plain_copies_when_cp_cannot_clone(self):
+        self.install(self.pack())
+        installed = snapshot(self.app)
+        real_run = subprocess.run
+
+        def cp_fails(cmd, *args, **kw):
+            if cmd[0] != "cp":
+                return real_run(cmd, *args, **kw)
+            if cmd[1] == "-cR":
+                Path(cmd[-1]).mkdir()  # a partial copy left behind
+            return subprocess.CompletedProcess(cmd, 1, "", "cp: clonefile failed")
+
+        with mock.patch.object(textures.subprocess, "run", cp_fails):
+            _, dest = self.export()
+            self.assertEqual(snapshot(dest), self.PACK_FILES)
+            textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+            self.assertEqual(self.install_from(dest), ["figures", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+        self.assertEqual(snapshot(dest), self.PACK_FILES)
+
     def test_archives_and_a_folder_together_or_neither_are_refused(self):
         with self.assertRaisesRegex(GfxError, "not both"):
             textures.install(self.app, self.pack(), from_dir=self.folder({"zones/a.dds": b"x"}),

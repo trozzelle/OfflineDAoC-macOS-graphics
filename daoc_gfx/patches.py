@@ -73,8 +73,7 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
         raise GfxError("a level is only for enable anisotropy")
     if from_dir is not None and not any(cat[p]["kind"] == "textures" for p in enable):
         raise GfxError("--from-dir is only for enable textures")
-    if from_dir is not None and archives:
-        raise GfxError("give the texture pack's archives or --from-dir, not both")
+    textures.check_source(archives, from_dir, required=False)
 
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))

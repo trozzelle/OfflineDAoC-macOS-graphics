@@ -124,8 +124,9 @@ daoc-gfx … enable textures --from-dir <dir>
 the pack or the originals are live. It never changes the client, and refuses a
 `<dir>` that is not empty or an interrupted operation. `--from-dir` takes such
 a folder in place of archives, with the same checks: only plain files and
-folders, and top-level folders that are client folders. Your folder is copied,
-not moved.
+folders, and top-level folders that are client folders. Finder's `.DS_Store`
+and `._*` files are ignored: an export folder holding only them counts as
+empty, and `--from-dir` skips them. Your folder is copied, not moved.
 
 ### Display patches
 

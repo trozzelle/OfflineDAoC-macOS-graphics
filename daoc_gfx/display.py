@@ -20,6 +20,7 @@ STATE = "display.json"
 CONF = "mtld3d.conf"
 CONF_MARKER = "# Written by daoc-gfx (OfflineDAoC-macOS-graphics)"
 MAC_DRIVER_KEY = r"HKCU\Software\Wine\Mac Driver"
+NO_CONF, OUR_CONF, YOUR_CONF = "none", "daoc-gfx", "your own"
 
 
 class WineRegistry:
@@ -64,7 +65,7 @@ def conf_is_ours(conf: Path) -> bool:
 
 def conf_owner(app: Path) -> str:
     conf = app / CONF
-    return "none" if not conf.exists() else ("daoc-gfx" if conf_is_ours(conf) else "your own")
+    return NO_CONF if not conf.exists() else (OUR_CONF if conf_is_ours(conf) else YOUR_CONF)
 
 
 def render_conf(ids: List[str], keys: Dict[str, str]) -> str:

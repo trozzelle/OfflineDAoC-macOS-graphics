@@ -83,8 +83,6 @@ class EnableDisable(Patches):
 
     def test_textures_install_from_an_exported_folder(self):
         dest = self.exported_pack()
-        with self.assertRaisesRegex(GfxError, r"--archives <part>\.\.\. or --from-dir"):
-            self.change(enable=["textures"])
         with self.assertRaisesRegex(GfxError, "only for enable textures"):
             self.change(enable=["srgb"], from_dir=dest)
         with self.assertRaisesRegex(GfxError, "not both"):

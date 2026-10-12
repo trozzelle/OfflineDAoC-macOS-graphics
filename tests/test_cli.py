@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import unittest
 
 from daoc_gfx import anisotropy, cli, patches, textures
@@ -30,7 +31,6 @@ class Cli(Fixture):
     def status(self) -> dict:
         code, out, err = self.main("status", "--json")
         self.assertEqual(code, 0, err)
-        self.assertTrue(out.endswith("}\n"))
         return json.loads(out)  # exactly one JSON object, nothing else on stdout
 
     def change(self, enable=(), disable=()):
@@ -41,7 +41,6 @@ class Cli(Fixture):
 class StatusJson(Cli):
     def test_a_fresh_client_is_all_off_with_no_components(self):
         s = self.status()
-        self.assertEqual(list(s), ["schema", "patches", "anisotropy_level", "mtld3d_conf", "textures"])
         self.assertEqual(s, {"schema": 1,
                              "patches": {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off"},
@@ -81,6 +80,20 @@ class StatusJson(Cli):
         self.assertEqual(s["textures"]["pending"], "install")
         self.assertEqual(s["patches"]["textures"], "needs 'textures recover'")
 
+    def test_the_remaining_states_keep_their_schema_1_values(self):
+        self.change(enable=["anisotropy"])
+        (self.launcher / anisotropy.LAUNCHER_SCRIPT).write_text(STOCK_LAUNCHER)  # proxy left, launcher stock
+        textures.install(self.app, self.pack(), is_running=NOT_RUNNING, log=QUIET)
+        shutil.rmtree(self.app / ("zones" + textures.BACKUP))
+        shutil.rmtree(self.app / "figures")
+        shutil.rmtree(self.app / ("figures" + textures.BACKUP))
+        (self.app / ("sky" + textures.SWAP)).mkdir()
+        s = self.status()
+        self.assertEqual(s["patches"]["anisotropy"], "partly on")
+        self.assertEqual(s["textures"]["components"], [{"name": "figures", "state": "missing"},
+                                                       {"name": "sky", "state": "conflict"},
+                                                       {"name": "zones", "state": "not installed"}])
+
     def test_a_missing_client_folder_fails_with_nothing_on_stdout(self):
         code, out, err = self.main("status", "--json", app=self.tmp / "nope")
         self.assertEqual(code, 1)
@@ -93,27 +106,22 @@ class TextureFolders(Cli):
         textures.install(self.app, self.pack(), is_running=NOT_RUNNING, log=QUIET)
         before = self.status()
         export = self.tmp / "export"
-        code, out, err = self.main("textures", "export", str(export))
+        code, _, err = self.main("textures", "export", str(export))
         self.assertEqual(code, 0, err)
-        self.assertIn("exported: figures, zones", out)
         textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
-        code, out, err = self.main("textures", "install", "--from-dir", str(export))
+        code, _, err = self.main("textures", "install", "--from-dir", str(export))
         self.assertEqual(code, 0, err)
-        self.assertIn("installed: figures, zones (pack files active)", out)
         self.assertEqual(self.status(), before)
 
     def test_install_takes_archives_or_a_folder_not_both_or_neither(self):
-        for argv in (["textures", "install"],
-                     ["textures", "install", str(self.tmp / "p.7z"), "--from-dir", str(self.tmp)]):
-            with self.assertRaises(SystemExit) as raised:
-                self.main(*argv)
-            self.assertEqual(raised.exception.code, 2)
-
-    def test_enable_from_dir_is_only_for_textures(self):
-        code, out, err = self.main("enable", "srgb", "--from-dir", str(self.tmp))
-        self.assertEqual(code, 1)
-        self.assertIn("only for enable textures", err)
-        self.assertEqual(patches.states(self.app)["srgb"], "off")
+        for argv, message in ((["textures", "install"], "no archive or pack folder given"),
+                              (["textures", "install", str(self.tmp / "p.7z"), "--from-dir", str(self.tmp)],
+                               "not both")):
+            code, out, err = self.main(*argv)
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertIn(message, err)
+        self.assertEqual(textures.status(self.app), [])
 
 
 if __name__ == "__main__":

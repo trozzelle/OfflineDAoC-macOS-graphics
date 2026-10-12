@@ -25,8 +25,23 @@ def show_status(app: Path, launcher: Optional[Path]) -> None:
     for p, state in patches.states(app, launcher).items():
         detail = f", {anisotropy.level(app)}x" if cat[p]["kind"] == "anisotropy" and state != "off" else ""
         print(f"{p:<10} {state:<14} {cat[p]['title']}{detail}")
-    if display.conf_owner(app) == "your own":
+    if display.conf_owner(app) == display.YOUR_CONF:
         print("mtld3d.conf is your own file; mtld3d patches stay off while it is there")
+
+
+# Schema 1's values, fixed here instead of passing on the strings the modules print,
+# so rewording a message cannot change the JSON. A state missing here raises KeyError:
+# give it a value, and bump `schema` if old readers would misread it.
+PATCH_STATE_JSON = {
+    patches.ON: "on", patches.OFF: "off", patches.PARTLY_ON: "partly on",
+    anisotropy.ON: "on", anisotropy.OFF: "off", anisotropy.PARTLY_ON: "partly on",
+    patches.NOT_INSTALLED: "not installed", patches.NEEDS_RECOVER: "needs 'textures recover'",
+}
+COMPONENT_STATE_JSON = {
+    textures.NOT_INSTALLED: "not installed", textures.PACK_ACTIVE: "pack active",
+    textures.ORIGINAL_ACTIVE: "originals active", textures.MISSING: "missing", textures.CONFLICT: "conflict",
+}
+CONF_OWNER_JSON = {display.NO_CONF: "none", display.OUR_CONF: "daoc-gfx", display.YOUR_CONF: "your own"}
 
 
 def status_json(app: Path, launcher: Optional[Path]) -> dict:
@@ -36,11 +51,12 @@ def status_json(app: Path, launcher: Optional[Path]) -> dict:
     aniso_on = any(cat[p]["kind"] == "anisotropy" and state != anisotropy.OFF for p, state in states.items())
     return {
         "schema": 1,
-        "patches": states,
+        "patches": {p: PATCH_STATE_JSON[state] for p, state in states.items()},
         "anisotropy_level": anisotropy.level(app) if aniso_on else None,
-        "mtld3d_conf": display.conf_owner(app),
+        "mtld3d_conf": CONF_OWNER_JSON[display.conf_owner(app)],
         "textures": {
-            "components": [{"name": name, "state": state} for name, state in textures.status(app)],
+            "components": [{"name": name, "state": COMPONENT_STATE_JSON[state]}
+                           for name, state in textures.status(app)],
             "pending": textures.pending(app),
         },
     }
@@ -155,8 +171,6 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     p = parser()
     args = p.parse_args(argv)
-    if args.command == "textures" and args.action == "install" and bool(args.archives) == bool(args.from_dir):
-        p.error("textures install takes the pack's archives or --from-dir DIR, one of them")
     try:
         run(args)
     except GfxError as e:
