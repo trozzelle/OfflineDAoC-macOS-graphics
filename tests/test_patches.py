@@ -24,9 +24,17 @@ class Patches(Fixture):
         self.registry = MemoryRegistry("n")
         self.conf = self.app / display.CONF
 
-    def change(self, enable=(), disable=(), archives=None):
+    def change(self, enable=(), disable=(), archives=None, from_dir=None):
         patches.change(self.app, set(enable), set(disable), lambda: self.registry, archives,
-                       is_running=NOT_RUNNING, log=QUIET)
+                       is_running=NOT_RUNNING, log=QUIET, from_dir=from_dir)
+
+    def exported_pack(self):
+        """The pack, installed from archives, exported and uninstalled again."""
+        textures.install(self.app, self.pack(), is_running=NOT_RUNNING, log=QUIET)
+        dest = self.tmp / "export"
+        textures.export(self.app, dest, is_running=NOT_RUNNING, log=QUIET)
+        textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+        return dest
 
     def select(self, *answers):
         replies = iter(answers)
@@ -73,6 +81,17 @@ class EnableDisable(Patches):
         self.change(enable=["textures"])  # installed: no archives needed
         self.assertEqual(self.read("zones/textures/a.dds"), b"new-a")
 
+    def test_textures_install_from_an_exported_folder(self):
+        dest = self.exported_pack()
+        with self.assertRaisesRegex(GfxError, "only for enable textures"):
+            self.change(enable=["srgb"], from_dir=dest)
+        with self.assertRaisesRegex(GfxError, "not both"):
+            self.change(enable=["textures"], archives=[self.tmp / "p1.7z"], from_dir=dest)
+        self.assertEqual(self.states()["srgb"], "off")
+        self.change(enable=["textures"], from_dir=dest)
+        self.assertEqual(self.states()["textures"], "on")
+        self.assertEqual(self.read("zones/textures/c.dds"), b"new-c")
+
     def test_unknown_patch(self):
         with self.assertRaisesRegex(GfxError, "no patch 'ultra'"):
             self.change(enable=["ultra"])
@@ -104,6 +123,12 @@ class Select(Patches):
     def test_texture_pack_is_installed_from_the_archives_asked_for(self):
         p1, p2 = self.pack()
         self.select("3", "", f"'{p1}' {str(p2).replace(' ', chr(92) + ' ')}")
+        self.assertEqual(self.states()["textures"], "on")
+        self.assertEqual(self.read("figures/skins/s.dds"), b"new-s")
+
+    def test_texture_pack_is_installed_from_an_exported_folder_dropped_in(self):
+        dest = self.exported_pack()
+        self.select("3", "", f"'{dest}'")
         self.assertEqual(self.states()["textures"], "on")
         self.assertEqual(self.read("figures/skins/s.dds"), b"new-s")
 

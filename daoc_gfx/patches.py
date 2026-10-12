@@ -59,9 +59,11 @@ def states(app: Path, launcher: Optional[Path] = None) -> Dict[str, str]:
 
 def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callable,
            archives: Optional[Sequence[Path]] = None, is_running=game_running, log=print,
-           launcher: Optional[Path] = None, level: Optional[int] = None) -> None:
+           launcher: Optional[Path] = None, level: Optional[int] = None,
+           from_dir: Optional[Path] = None) -> None:
     """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone.
-    `level` is the anisotropy patch's level, when it is being turned on."""
+    `level` is the anisotropy patch's level, when it is being turned on. `archives`, or
+    `from_dir` (a folder 'textures export' wrote), is the texture pack to install."""
     cat = catalog()
     check_ids(cat, enable | disable)
     both = enable & disable
@@ -69,6 +71,9 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
         raise GfxError(f"both on and off: {', '.join(sorted(both))}")
     if level is not None and not any(cat[p]["kind"] == "anisotropy" for p in enable):
         raise GfxError("a level is only for enable anisotropy")
+    if from_dir is not None and not any(cat[p]["kind"] == "textures" for p in enable):
+        raise GfxError("--from-dir is only for enable textures")
+    textures.check_source(archives, from_dir, required=False)
 
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))
@@ -88,10 +93,10 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
             raise GfxError("the texture pack needs 'textures recover' first")
         if p in enable:
             if state == NOT_INSTALLED:
-                if not archives:
-                    raise GfxError("the texture pack is not installed; give its archives "
-                                   "(enable textures --archives <part>...)")
-                textures.install(app, archives, is_running=is_running, log=log)
+                if not archives and from_dir is None:
+                    raise GfxError("the texture pack is not installed; give its archives or an exported "
+                                   "pack folder (enable textures --archives <part>... or --from-dir <folder>)")
+                textures.install(app, archives, is_running=is_running, log=log, from_dir=from_dir)
             elif state != ON:
                 textures.use(app, "pack", is_running=is_running, log=log)
         elif p in disable and state in (ON, PARTLY_ON):
@@ -137,18 +142,23 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
     if not enable and not disable:
         out("nothing changed")
         return False
-    archives = None
+    archives = from_dir = None
     if any(cat[p]["kind"] == "textures" and current[p] == NOT_INSTALLED for p in enable):
         try:
-            raw = ask("Texture pack archives, every part (drag them here), then Enter: ")
+            raw = ask("Texture pack archives, every part, or a folder 'textures export' wrote "
+                      "(drag them here), then Enter: ")
         except EOFError:
             raw = ""
-        archives = [Path(a).expanduser() for a in shlex.split(raw)]
+        paths = [Path(a).expanduser() for a in shlex.split(raw)]
+        if len(paths) == 1 and paths[0].is_dir():
+            from_dir = paths[0]
+        else:
+            archives = paths
     level = None
     if any(cat[p]["kind"] == "anisotropy" for p in enable):
         level = ask_level(app, ask, out)
     change(app, enable, disable, get_registry, archives, is_running=is_running, log=log, launcher=launcher,
-           level=level)
+           level=level, from_dir=from_dir)
     for p in ids:
         if p in enable:
             out(f"on : {cat[p]['title']}")

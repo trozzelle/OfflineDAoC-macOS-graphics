@@ -201,5 +201,188 @@ class Interruptions(Fixture):
         self.assertEqual(textures.status(self.app), [])
 
 
+class ExportAndInstallFromFolder(Fixture):
+    PACK_FILES = {"figures/skins/s.dds": b"new-s", "zones/textures/a.dds": b"new-a",
+                  "zones/textures/c.dds": b"new-c"}
+
+    def export(self, dest=None, **kw):
+        dest = dest or self.tmp / "export"
+        return textures.export(self.app, dest, is_running=NOT_RUNNING, log=QUIET, **kw), dest
+
+    def install_from(self, source, **kw):
+        return textures.install(self.app, from_dir=source, is_running=NOT_RUNNING, log=QUIET, **kw)
+
+    def folder(self, files: dict) -> Path:
+        source = self.tmp / "folder"
+        for rel, data in files.items():
+            p = source / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+        return source
+
+    def assertFolderRefused(self, source, message):
+        with self.assertRaisesRegex(GfxError, message):
+            self.install_from(source)
+        self.assertEqual(snapshot(self.app), self.original)
+        self.assertEqual(textures.status(self.app), [])
+        self.assertFalse((state_dir(self.app) / textures.STAGING).exists())
+
+    def test_export_holds_exactly_the_replaced_and_added_files(self):
+        same = self.archive("p3.7z", {"items/i.dds": b"old-i"})  # identical to the original
+        self.install(self.pack() + [same])
+        done, dest = self.export()
+        self.assertEqual(done, ["figures", "items", "zones"])
+        self.assertEqual(snapshot(dest), self.PACK_FILES)
+        self.assertEqual(os.listdir(dest / "items"), [])  # kept, so installing it back keeps it
+
+    def test_a_component_with_no_differing_file_survives_the_round_trip(self):
+        same = self.archive("p3.7z", {"items/i.dds": b"old-i"})
+        self.install(self.pack() + [same])
+        installed = snapshot(self.app)
+        _, dest = self.export()
+        textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+        self.assertEqual(self.install_from(dest), ["figures", "items", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+        self.assertEqual(textures.status(self.app), [("figures", textures.PACK_ACTIVE),
+                                                     ("items", textures.PACK_ACTIVE),
+                                                     ("zones", textures.PACK_ACTIVE)])
+
+    def test_export_with_the_originals_active_is_identical(self):
+        self.install(self.pack())
+        _, first = self.export()
+        self.use("original", components=["zones"])
+        _, partly = self.export(self.tmp / "partly")
+        self.use("original")
+        done, second = self.export(self.tmp / "second")
+        self.assertEqual(done, ["figures", "zones"])
+        self.assertEqual(snapshot(partly), self.PACK_FILES)
+        self.assertEqual(snapshot(second), snapshot(first))
+
+    def test_export_leaves_the_client_as_it_was(self):
+        self.install(self.pack())
+        self.use("original", components=["figures"])
+        before = snapshot(self.app)
+        self.export()
+        self.assertEqual(snapshot(self.app), before)
+        self.assertEqual(textures.status(self.app),
+                         [("figures", textures.ORIGINAL_ACTIVE), ("zones", textures.PACK_ACTIVE)])
+
+    def test_export_refuses_a_pending_journal_a_non_empty_or_inner_dest(self):
+        with self.assertRaisesRegex(GfxError, "no texture pack is installed"):
+            self.export()
+        self.install(self.pack())
+        dest = self.tmp / "export"
+        dest.mkdir()
+        (dest / "x").write_bytes(b"x")
+        with self.assertRaisesRegex(GfxError, "not an empty folder"):
+            self.export(dest)
+        self.assertEqual(os.listdir(dest), ["x"])
+        with self.assertRaisesRegex(GfxError, "inside the client"):
+            self.export(self.app / "export")
+        (state_dir(self.app) / textures.JOURNAL).write_text(json.dumps(
+            {"action": "use", "components": ["zones"], "starting": {"zones": textures.PACK_ACTIVE}}))
+        with self.assertRaisesRegex(GfxError, "recover"):
+            self.export(self.tmp / "other")
+        self.assertFalse((self.tmp / "other").exists())
+
+    def test_failed_export_removes_the_folders_it_made_and_keeps_the_users(self):
+        self.install(self.pack())
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        with mock.patch.object(textures, "clone_files", side_effect=OSError("disk full")):
+            for dest in (self.tmp / "new" / "export", empty):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    self.export(dest)
+        self.assertFalse((self.tmp / "new").exists())
+        self.assertEqual(os.listdir(empty), [])
+
+    def test_export_refuses_the_client_folder_named_in_other_case(self):
+        self.install(self.pack())
+        upper = self.tmp / self.app.name.upper()
+        if not upper.exists():
+            self.skipTest("the volume compares names with regard to case")
+        before = snapshot(self.app)
+        with self.assertRaisesRegex(GfxError, "inside the client"):
+            self.export(upper / "export")
+        self.assertEqual(snapshot(self.app), before)
+        self.assertFalse((self.app / "export").exists())
+
+    def test_uninstall_then_install_from_the_export_restores_every_file(self):
+        self.install(self.pack())
+        installed = snapshot(self.app)
+        _, dest = self.export()
+        textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+        self.assertEqual(snapshot(self.app), self.original)
+        self.assertEqual(self.install_from(dest), ["figures", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+        self.assertEqual(snapshot(dest), self.PACK_FILES)  # cloned from, not moved out of
+        record = json.loads((state_dir(self.app) / textures.MANIFEST).read_text())["components"]["zones"]
+        self.assertEqual(record["from_dir"], "export")
+        self.assertNotIn("archives", record)
+        self.assertFalse((state_dir(self.app) / textures.STAGING).exists())
+
+    def test_folder_install_matches_case_and_selects_components(self):
+        source = self.folder({"Zones/Textures/A.DDS": b"new-a", "figures/skins/s.dds": b"new-s"})
+        self.assertEqual(self.install_from(source, components=["zones"]), ["zones"])
+        self.assertEqual(self.read("zones/textures/a.dds"), b"new-a")
+        self.assertEqual(sorted(os.listdir(self.app / "zones/textures")), ["a.dds", "b.dds"])
+        self.assertEqual(self.read("figures/skins/s.dds"), b"old-s")
+        with self.assertRaisesRegex(GfxError, "zones: pack active"):
+            self.install_from(source)
+
+    def test_symlink_in_the_folder_is_refused(self):
+        source = self.folder({"zones/textures/a.dds": b"new-a"})
+        os.symlink(self.app / "game.dll", source / "zones/textures/link.dds")
+        self.assertFolderRefused(source, "not a plain file or folder")
+
+    def test_top_level_folder_the_client_does_not_have_is_refused(self):
+        self.assertFolderRefused(self.folder({"Textures/zones/a.dds": b"x"}),
+                                 "'Textures' is not a folder of this client")
+
+    def test_file_outside_a_folder_is_refused(self):
+        self.assertFolderRefused(self.folder({"game.dll": b"evil"}), "is a file")
+
+    def test_finder_metadata_files_survive_the_round_trip(self):
+        self.install(self.pack())
+        installed = snapshot(self.app)
+        dest = self.tmp / "export"
+        dest.mkdir()
+        (dest / ".DS_Store").write_bytes(b"finder")  # a new folder made in Finder
+        self.export(dest)
+        for junk in (".DS_Store", "._.DS_Store", "zones/.DS_Store", "zones/textures/._a.dds"):
+            (dest / junk).write_bytes(b"finder")
+        textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+        self.assertEqual(self.install_from(dest), ["figures", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+
+    def test_round_trip_falls_back_to_plain_copies_when_cp_cannot_clone(self):
+        self.install(self.pack())
+        installed = snapshot(self.app)
+        real_run = subprocess.run
+
+        def cp_fails(cmd, *args, **kw):
+            if cmd[0] != "cp":
+                return real_run(cmd, *args, **kw)
+            if cmd[1] == "-cR":
+                Path(cmd[-1]).mkdir()  # a partial copy left behind
+            return subprocess.CompletedProcess(cmd, 1, "", "cp: clonefile failed")
+
+        with mock.patch.object(textures.subprocess, "run", cp_fails):
+            _, dest = self.export()
+            self.assertEqual(snapshot(dest), self.PACK_FILES)
+            textures.uninstall(self.app, is_running=NOT_RUNNING, log=QUIET)
+            self.assertEqual(self.install_from(dest), ["figures", "zones"])
+        self.assertEqual(snapshot(self.app), installed)
+        self.assertEqual(snapshot(dest), self.PACK_FILES)
+
+    def test_archives_and_a_folder_together_or_neither_are_refused(self):
+        with self.assertRaisesRegex(GfxError, "not both"):
+            textures.install(self.app, self.pack(), from_dir=self.folder({"zones/a.dds": b"x"}),
+                             is_running=NOT_RUNNING, log=QUIET)
+        with self.assertRaisesRegex(GfxError, "no archive or pack folder"):
+            textures.install(self.app, [], is_running=NOT_RUNNING, log=QUIET)
+        self.assertEqual(snapshot(self.app), self.original)
+
+
 if __name__ == "__main__":
     unittest.main()
