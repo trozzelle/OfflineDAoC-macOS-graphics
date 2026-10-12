@@ -12,9 +12,14 @@ Every changing operation writes a journal first; `recover` finishes or undoes an
 operation that was interrupted, and no other operation starts while one is
 pending. The folder-variant scheme follows Sqeak's Windows installer
 (github.com/pfisher99/Eden-DAoC-Texture-Installer).
+
+`export` copies the files an installed pack added or changed out of the client,
+laid out like a pack archive; installing from that folder puts them back, for
+example into a replaced client.
 """
 from __future__ import annotations
 
+import filecmp
 import os
 import re
 import shutil
@@ -130,6 +135,39 @@ def inspect(app: Path, archives: Sequence[Path]) -> Dict[str, int]:
     return dict(sorted(((k, v) for k, v in counts.items() if v), key=lambda kv: kv[0].lower()))
 
 
+def inspect_dir(app: Path, source: Path) -> Dict[str, int]:
+    """inspect() for a pack folder: a folder laid out like a pack archive's top level
+    (what export writes). Refuses anything but plain files and folders as well. A client
+    folder with no files counts: export writes one for a component whose pack files all
+    equal the originals, and installing it keeps the component installed."""
+    if not source.is_dir():
+        raise GfxError(f"pack folder not found: {source}")
+    folders = client_folders(app)
+    counts: Dict[str, int] = {}
+    seen = set()
+    for dirpath, dirnames, names in os.walk(source):
+        for n in dirnames + names:
+            p = Path(dirpath) / n
+            rel = p.relative_to(source)
+            if p.is_symlink() or not (p.is_dir() or p.is_file()):
+                raise GfxError(f"{source.name}: not a plain file or folder: {rel}")
+            if len(rel.parts) == 1 and not p.is_dir():
+                raise GfxError(f"{source.name}: '{n}' is a file; a pack holds client folders")
+            if len(rel.parts) == 1 and n.lower() not in folders:
+                raise GfxError(f"{source.name}: '{n}' is not a folder of this client")
+            if len(rel.parts) == 1:
+                counts.setdefault(folders[n.lower()], 0)
+        for n in names:
+            rel = (Path(dirpath) / n).relative_to(source)
+            key = rel.as_posix().lower()
+            if key in seen:  # possible on a case-sensitive volume
+                raise GfxError(f"{source.name}: '{rel}' is there twice in different case")
+            seen.add(key)
+            real = folders[rel.parts[0].lower()]
+            counts[real] = counts.get(real, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: kv[0].lower()))
+
+
 def select(available: Sequence[str], requested: Optional[Sequence[str]], what: str) -> List[str]:
     if not requested:
         return list(available)
@@ -153,6 +191,17 @@ def clone_tree(source: Path, target: Path) -> None:
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target, symlinks=True)
+
+
+def clone_files(sources: Sequence[Path], folder: Path) -> None:
+    """Copy files into a folder as APFS clones; plain copies on another volume."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for i in range(0, len(sources), 256):  # well below the argument length limit
+        chunk = sources[i:i + 256]
+        done = subprocess.run(["cp", "-c", *map(str, chunk), str(folder)], capture_output=True, text=True)
+        if done.returncode != 0:
+            for source in chunk:
+                shutil.copy2(source, folder / source.name)
 
 
 def tree_stats(root: Path) -> Tuple[int, int]:
@@ -249,17 +298,29 @@ def begin(app: Path, journal: dict, is_running: Callable[[Path], bool]) -> Path:
 
 # --- operations -----------------------------------------------------------------
 
-def install(app: Path, archives: Sequence[Path], components: Optional[Sequence[str]] = None,
-            is_running: Callable[[Path], bool] = game_running, log=print) -> List[str]:
+def install(app: Path, archives: Optional[Sequence[Path]] = None, components: Optional[Sequence[str]] = None,
+            is_running: Callable[[Path], bool] = game_running, log=print,
+            from_dir: Optional[Path] = None) -> List[str]:
+    """Install a pack from its archives, or from `from_dir`, a folder laid out like
+    one (what export writes). Either source is staged first; from there on both
+    take the same path."""
+    if bool(archives) == (from_dir is not None):
+        raise GfxError("give the pack's archives or a pack folder, not both" if archives
+                       else "no archive or pack folder given")
     with operation_lock(app):
-        inventory = inspect(app, archives)
-        selected = select(list(inventory), components, "a folder in these archives")
+        if from_dir is None:
+            inventory = inspect(app, archives)
+            selected = select(list(inventory), components, "a folder in these archives")
+        else:
+            from_dir = from_dir.expanduser().resolve()
+            inventory = inspect_dir(app, from_dir)
+            selected = select(list(inventory), components, f"a folder in {from_dir.name}")
         for name in selected:
             state = detect(app, name)
             if state != NOT_INSTALLED:
                 raise GfxError(f"{name}: {state}; uninstall it before installing another pack over it")
-        # Fail fast, before unpacking gigabytes; begin() checks again once the
-        # archives are unpacked.
+        # Fail fast, before unpacking or copying gigabytes; begin() checks again
+        # once the pack is staged.
         refuse_if_running(app, is_running)
         if (state_dir(app) / JOURNAL).exists():
             raise GfxError("an interrupted texture operation is pending; run 'textures recover' first")
@@ -268,16 +329,23 @@ def install(app: Path, archives: Sequence[Path], components: Optional[Sequence[s
         remove_tree(staging)
         staging.mkdir()
         try:
-            # Unpack outside the client first: a damaged archive or a full disk
+            # Stage outside the client first: a damaged archive or a full disk
             # fails here, before any client folder changes.
-            for i, archive in enumerate(archives):
-                part = staging / str(i)
-                part.mkdir()
-                log(f"unpacking {archive.name}")
-                done = subprocess.run([TAR, "-xf", str(archive), "-C", str(part)],
-                                      capture_output=True, text=True)
-                if done.returncode != 0:
-                    raise GfxError(f"cannot unpack {archive.name}: {done.stderr.strip()}")
+            if from_dir is None:
+                for i, archive in enumerate(archives):
+                    part = staging / str(i)
+                    part.mkdir()
+                    log(f"unpacking {archive.name}")
+                    done = subprocess.run([TAR, "-xf", str(archive), "-C", str(part)],
+                                          capture_output=True, text=True)
+                    if done.returncode != 0:
+                        raise GfxError(f"cannot unpack {archive.name}: {done.stderr.strip()}")
+                source = {"archives": [{"name": a.name, "bytes": a.stat().st_size} for a in archives]}
+            else:
+                # A clone: the pack files then move out of staging, never out of from_dir.
+                log(f"copying {from_dir.name}")
+                clone_tree(from_dir, staging / "0")
+                source = {"from_dir": from_dir.name}
             files = staged_files(staging, client_folders(app), selected)
 
             journal = {"action": "install", "phase": "backing-up", "components": selected}
@@ -292,15 +360,14 @@ def install(app: Path, archives: Sequence[Path], components: Optional[Sequence[s
                 write_json(journal_path, journal)
                 log(f"installing {len(files)} files")
                 resolver = CaseResolver()
-                for source, folder, below in files:
+                for staged, folder, below in files:
                     target = resolver.resolve(app / folder, below)
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(source, target)
+                    os.replace(staged, target)
                 manifest = load_manifest(app)
                 installed = datetime.now(timezone.utc).isoformat(timespec="seconds")
-                sources = [{"name": a.name, "bytes": a.stat().st_size} for a in archives]
                 for name in selected:
-                    manifest["components"][name] = {"installed": installed, "archives": sources}
+                    manifest["components"][name] = {"installed": installed, **source}
                 save_manifest(app, manifest)
             except BaseException:
                 undo_install(app, journal)
@@ -310,6 +377,73 @@ def install(app: Path, archives: Sequence[Path], components: Optional[Sequence[s
         finally:
             remove_tree(staging)
         return selected
+
+
+def export(app: Path, dest: Path, components: Optional[Sequence[str]] = None,
+           is_running: Callable[[Path], bool] = game_running, log=print) -> List[str]:
+    """Copy the installed pack's files out of the client to `dest/<folder>/<path below
+    it>`, the layout of a pack archive, for install(from_dir=dest). Only files the
+    pack added or changed are copied: a pack file identical to the original cannot be
+    told apart from it. Every selected folder gets its `dest/<folder>`, empty if no file
+    differs, so installing from `dest` brings back every component. Writes nothing
+    outside `dest`; returns the folders exported."""
+    with operation_lock(app):
+        if pending(app):
+            raise GfxError("an interrupted texture operation is pending; run 'textures recover' first")
+        names = select(known_components(app), components, "an installed folder")
+        if not names:
+            raise GfxError("no texture pack is installed")
+        states = {n: detect(app, n) for n in names}
+        for name, state in states.items():
+            if state not in (PACK_ACTIVE, ORIGINAL_ACTIVE):
+                raise GfxError(f"{name}: {state}; cannot export it")
+        refuse_if_running(app, is_running)
+        dest = dest.expanduser().resolve()
+        # By identity, not by name: on a case-insensitive volume .../App/x is inside .../app.
+        if any(p.exists() and os.path.samefile(p, app) for p in (dest, *dest.parents)):
+            raise GfxError(f"{dest} is inside the client folder; export to a folder outside it")
+        if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
+            raise GfxError(f"{dest} is not an empty folder; export to a new or empty one")
+        dest.mkdir(parents=True, exist_ok=True)
+        try:
+            for name in names:
+                if states[name] == PACK_ACTIVE:
+                    pack, originals = app / name, app / (name + BACKUP)
+                else:
+                    pack, originals = app / (name + PACK), app / name
+                (dest / name).mkdir()
+                count = export_folder(pack, originals, dest / name)
+                log(f"{name}: {count} pack files" if count
+                    else f"{name}: no file differs from the originals; exported as an empty folder")
+        except BaseException:
+            for name in names:
+                remove_tree(dest / name)
+            raise
+        return names
+
+
+def export_folder(pack: Path, originals: Path, target: Path) -> int:
+    """Copy each file of `pack` that `originals` lacks or holds other bytes for
+    (paths compare without regard to case) to the same path below `target`."""
+    resolver = CaseResolver()
+    count = 0
+    for dirpath, dirnames, names in os.walk(pack):
+        here = Path(dirpath)
+        dirnames.sort()
+        for n in dirnames + names:
+            p = here / n
+            if p.is_symlink() or not (p.is_dir() or p.is_file()):
+                raise GfxError(f"{p.relative_to(pack.parent)} is not a plain file or folder; cannot export it")
+        below = here.relative_to(pack).parts
+        changed = []
+        for n in sorted(names):
+            original = resolver.resolve(originals, below + (n,))
+            if not (original.is_file() and filecmp.cmp(here / n, original, shallow=False)):
+                changed.append(here / n)
+        if changed:
+            clone_files(changed, target.joinpath(*below))
+            count += len(changed)
+    return count
 
 
 def undo_install(app: Path, journal: dict) -> None:

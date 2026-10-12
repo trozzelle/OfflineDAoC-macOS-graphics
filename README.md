@@ -3,7 +3,7 @@
 Optional graphical patches for the Dark Age of Camelot 1.127 client running
 under Wine on macOS, as installed by
 [OfflineDAoC-macOS](https://github.com/trozzelle/OfflineDAoC-macOS). That repo's
-`graphics.sh` pulls a pinned commit of this one and runs it against its install;
+`daoc graphics` command pulls a pinned commit of this one and runs it against its install;
 `daoc-gfx` also works on its own against any such client.
 
 DAoC is a property of Mythic Entertainment / Broadsword Online Games (Electronic Arts).
@@ -46,8 +46,8 @@ Archives are read with macOS's own `bsdtar`, which handles `.7z`, `.zip` and tar
 
 The app folder is the one holding `game.dll`
 (`dist/OfflineDAoC/runtime/client-opendaoc/app` in an OfflineDAoC-macOS install).
-From an OfflineDAoC-macOS checkout, `./graphics.sh <command>` fills in all three
-paths, and `./graphics.sh` alone opens the checklist.
+With OfflineDAoC-macOS installed, `daoc graphics <command>` fills in all three
+paths (`--app`, `--wine`, `--prefix`), and `daoc graphics` alone opens the checklist.
 
 ```bash
 daoc-gfx … select                         # checklist: toggle by number, Enter applies
@@ -77,6 +77,55 @@ daoc-gfx … textures uninstall [-c zones …]      # originals back, pack files
 daoc-gfx … textures recover               # after an interrupted operation
 daoc-gfx … textures status
 ```
+
+### Machine interface
+
+These commands are for scripts, such as OfflineDAoC-macOS carrying a texture
+pack over to a new client.
+
+`daoc-gfx … status --json` prints one JSON object on stdout and exits 0:
+
+```json
+{
+  "schema": 1,
+  "patches": {"retina": "off", "srgb": "on", "textures": "partly on", "anisotropy": "on"},
+  "anisotropy_level": 16,
+  "mtld3d_conf": "daoc-gfx",
+  "textures": {
+    "components": [{"name": "zones", "state": "pack active"}, {"name": "figures", "state": "originals active"}],
+    "pending": null
+  }
+}
+```
+
+- `patches`: every patch in `patches.json`, each `on`, `off`, `partly on`,
+  `not installed` or `needs 'textures recover'`. New patches can appear
+  without a schema change.
+- `anisotropy_level`: the level the proxy uses (1 to 16; daoc-gfx writes 2, 4, 8
+  or 16) while `anisotropy` is not `off`, else `null`.
+- `mtld3d_conf`: who owns `mtld3d.conf`: `none`, `daoc-gfx` or `your own`.
+- `textures.components`: each texture-pack folder, in `textures status` order,
+  with `state` one of `not installed`, `pack active`, `originals active`,
+  `missing` or `conflict`.
+- `textures.pending`: an interrupted operation (`install`, `use` or
+  `uninstall`), or `null`.
+
+On an error you get a message on stderr, exit status 1 and nothing on stdout.
+`schema` changes only on a breaking change.
+
+```bash
+daoc-gfx … textures export <dir> [-c zones …]       # the pack's own files, to <dir>
+daoc-gfx … textures install --from-dir <dir> [-c zones …]
+daoc-gfx … enable textures --from-dir <dir>
+```
+
+`textures export` copies only the files the pack added or changed into
+`<dir>/<component>/…`, the same shape as a pack archive's top level, whether
+the pack or the originals are live. It never changes the client, and refuses a
+`<dir>` that is not empty or an interrupted operation. `--from-dir` takes such
+a folder in place of archives, with the same checks: only plain files and
+folders, and top-level folders that are client folders. Your folder is copied,
+not moved.
 
 ### Display patches
 
@@ -169,11 +218,11 @@ To install a different pack over an installed folder, uninstall it first.
 as two archives (`Sqeaks-DAoC-Textures-v0.1-Part1.7z` and `-Part2.7z`) and a
 Windows installer that this tool replaces on macOS. Download both archives
 from Nexus Mods (it needs a Nexus account), then check and install both parts
-at once (or turn `textures` on in `./graphics.sh` and drag them in):
+at once (or turn `textures` on in `daoc graphics` and drag them in):
 
 ```bash
-./graphics.sh textures inspect ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
-./graphics.sh enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+daoc graphics textures inspect ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+daoc graphics enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
 ```
 
 The pack was made and tested for the Eden server's client; on this client it is
