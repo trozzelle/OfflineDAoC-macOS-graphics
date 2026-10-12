@@ -285,6 +285,17 @@ class ExportAndInstallFromFolder(Fixture):
             self.export(self.tmp / "other")
         self.assertFalse((self.tmp / "other").exists())
 
+    def test_failed_export_removes_the_folders_it_made_and_keeps_the_users(self):
+        self.install(self.pack())
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        with mock.patch.object(textures, "clone_files", side_effect=OSError("disk full")):
+            for dest in (self.tmp / "new" / "export", empty):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    self.export(dest)
+        self.assertFalse((self.tmp / "new").exists())
+        self.assertEqual(os.listdir(empty), [])
+
     def test_export_refuses_the_client_folder_named_in_other_case(self):
         self.install(self.pack())
         upper = self.tmp / self.app.name.upper()

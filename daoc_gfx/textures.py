@@ -19,6 +19,7 @@ example into a replaced client.
 """
 from __future__ import annotations
 
+import contextlib
 import filecmp
 import os
 import re
@@ -27,7 +28,7 @@ import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from .common import (GfxError, game_running, operation_lock, read_json, refuse_if_running,
                      state_dir, write_json)
@@ -54,6 +55,19 @@ def finder_file(name: str) -> bool:
     """Finder's folder settings (.DS_Store) or an AppleDouble file (._*): metadata macOS
     writes into folders on its own, never part of a pack."""
     return name == ".DS_Store" or name.startswith("._")
+
+
+def walk_plain(root: Path, label: str) -> Iterator[Tuple[Path, List[str], List[str]]]:
+    """os.walk(root) as (folder, subfolder names, file names), Finder's metadata files left
+    out. Refuses anything but plain files and folders: a symlink, a device or a socket."""
+    for dirpath, dirnames, names in os.walk(root):
+        here = Path(dirpath)
+        names = [n for n in names if not finder_file(n)]
+        for n in dirnames + names:
+            p = here / n
+            if p.is_symlink() or not (p.is_dir() or p.is_file()):
+                raise GfxError(f"{label}: not a plain file or folder: {p.relative_to(root)}")
+        yield here, dirnames, names
 
 
 # --- folder states --------------------------------------------------------------
@@ -152,26 +166,23 @@ def inspect_dir(app: Path, source: Path) -> Dict[str, int]:
     folders = client_folders(app)
     counts: Dict[str, int] = {}
     seen = set()
-    for dirpath, dirnames, names in os.walk(source):
-        names = [n for n in names if not finder_file(n)]
-        for n in dirnames + names:
-            p = Path(dirpath) / n
-            rel = p.relative_to(source)
-            if p.is_symlink() or not (p.is_dir() or p.is_file()):
-                raise GfxError(f"{source.name}: not a plain file or folder: {rel}")
-            if len(rel.parts) == 1 and not p.is_dir():
-                raise GfxError(f"{source.name}: '{n}' is a file; a pack holds client folders")
-            if len(rel.parts) == 1 and n.lower() not in folders:
-                raise GfxError(f"{source.name}: '{n}' is not a folder of this client")
-            if len(rel.parts) == 1:
+    for here, dirnames, names in walk_plain(source, source.name):
+        below = here.relative_to(source).parts
+        if not below:  # the top level holds client folders only
+            for n in dirnames:
+                if n.lower() not in folders:
+                    raise GfxError(f"{source.name}: '{n}' is not a folder of this client")
                 counts.setdefault(folders[n.lower()], 0)
+            if names:
+                raise GfxError(f"{source.name}: '{names[0]}' is a file; a pack holds client folders")
+            continue
+        real = folders[below[0].lower()]
         for n in names:
-            rel = (Path(dirpath) / n).relative_to(source)
+            rel = Path(*below, n)
             key = rel.as_posix().lower()
             if key in seen:  # possible on a case-sensitive volume
                 raise GfxError(f"{source.name}: '{rel}' is there twice in different case")
             seen.add(key)
-            real = folders[rel.parts[0].lower()]
             counts[real] = counts.get(real, 0) + 1
     return dict(sorted(counts.items(), key=lambda kv: kv[0].lower()))
 
@@ -202,14 +213,16 @@ def clone_tree(source: Path, target: Path) -> None:
 
 
 def clone_files(sources: Sequence[Path], folder: Path) -> None:
-    """Copy files into a folder as APFS clones; plain copies on another volume."""
+    """Copy files into a folder as APFS clones; plain copies if cp fails."""
     folder.mkdir(parents=True, exist_ok=True)
     for i in range(0, len(sources), 256):  # well below the argument length limit
         chunk = sources[i:i + 256]
         done = subprocess.run(["cp", "-c", *map(str, chunk), str(folder)], capture_output=True, text=True)
         if done.returncode != 0:
-            for source in chunk:
+            # cp may have stopped partway through this chunk: copy it again, then the rest without cp.
+            for source in sources[i:]:
                 shutil.copy2(source, folder / source.name)
+            return
 
 
 def tree_stats(root: Path) -> Tuple[int, int]:
@@ -256,16 +269,11 @@ def staged_files(staging: Path, folders: Dict[str, str],
     wanted = {name.lower() for name in selected}
     found = []
     for part in sorted(staging.iterdir()):
-        for dirpath, dirnames, names in os.walk(part):
-            names = [n for n in names if not finder_file(n)]
-            for n in dirnames + names:
-                p = Path(dirpath) / n
-                if p.is_symlink() or not (p.is_dir() or p.is_file()):
-                    raise GfxError(f"archive entry is not a plain file or folder: {p.relative_to(part)}")
+        for here, _, names in walk_plain(part, "pack"):
             for n in names:
-                segments = list((Path(dirpath) / n).relative_to(part).parts)
+                segments = (here / n).relative_to(part).parts
                 if segments[0].lower() in wanted:
-                    found.append((Path(dirpath) / n, folders[segments[0].lower()], segments[1:]))
+                    found.append((here / n, folders[segments[0].lower()], list(segments[1:])))
     return found
 
 
@@ -328,7 +336,7 @@ def install(app: Path, archives: Optional[Sequence[Path]] = None, components: Op
             inventory = inspect(app, archives)
             selected = select(list(inventory), components, "a folder in these archives")
         else:
-            from_dir = from_dir.expanduser().resolve()
+            from_dir = from_dir.resolve()
             inventory = inspect_dir(app, from_dir)
             selected = select(list(inventory), components, f"a folder in {from_dir.name}")
         for name in selected:
@@ -414,13 +422,14 @@ def export(app: Path, dest: Path, components: Optional[Sequence[str]] = None,
             if state not in (PACK_ACTIVE, ORIGINAL_ACTIVE):
                 raise GfxError(f"{name}: {state}; cannot export it")
         refuse_if_running(app, is_running)
-        dest = dest.expanduser().resolve()
+        dest = dest.resolve()
         # By identity, not by name: on a case-insensitive volume .../App/x is inside .../app.
         if any(p.exists() and os.path.samefile(p, app) for p in (dest, *dest.parents)):
             raise GfxError(f"{dest} is inside the client folder; export to a folder outside it")
         # Finder leaves .DS_Store in a folder made or opened there; it does not count.
         if dest.exists() and (not dest.is_dir() or any(not finder_file(p.name) for p in dest.iterdir())):
             raise GfxError(f"{dest} is not an empty folder; export to a new or empty one")
+        created = [p for p in (dest, *dest.parents) if not p.exists()]  # deepest first
         dest.mkdir(parents=True, exist_ok=True)
         try:
             for name in names:
@@ -435,6 +444,9 @@ def export(app: Path, dest: Path, components: Optional[Sequence[str]] = None,
         except BaseException:
             for name in names:
                 remove_tree(dest / name)
+            for folder in created:  # only the folders this run made, and only while empty
+                with contextlib.suppress(OSError):
+                    folder.rmdir()
             raise
         return names
 
@@ -444,16 +456,10 @@ def export_folder(pack: Path, originals: Path, target: Path) -> int:
     (paths compare without regard to case) to the same path below `target`."""
     resolver = CaseResolver()
     count = 0
-    for dirpath, dirnames, names in os.walk(pack):
-        here = Path(dirpath)
-        dirnames.sort()
-        for n in dirnames + names:
-            p = here / n
-            if p.is_symlink() or not (p.is_dir() or p.is_file()):
-                raise GfxError(f"{p.relative_to(pack.parent)} is not a plain file or folder; cannot export it")
+    for here, _, names in walk_plain(pack, pack.name):
         below = here.relative_to(pack).parts
         changed = []
-        for n in sorted(names):
+        for n in names:
             original = resolver.resolve(originals, below + (n,))
             if not (original.is_file() and filecmp.cmp(here / n, original, shallow=False)):
                 changed.append(here / n)
