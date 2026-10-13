@@ -24,7 +24,8 @@ NO_CONF, OUR_CONF, YOUR_CONF = "none", "daoc-gfx", "your own"
 
 
 class WineRegistry:
-    """The prefix's Retina mode value (HKCU\\Software\\Wine\\Mac Driver\\RetinaMode)."""
+    """String values in the prefix's registry: Retina mode
+    (HKCU\\Software\\Wine\\Mac Driver\\RetinaMode) and the reshade patch's DLL override."""
 
     def __init__(self, wine_home: Path, prefix: Path) -> None:
         self.wine = wine_home / "bin" / "wine"
@@ -33,29 +34,37 @@ class WineRegistry:
             raise GfxError(f"no wine at {self.wine}")
         if not (prefix / "system.reg").is_file():
             raise GfxError(f"{prefix} is not a wine prefix")
-        self.env = dict(os.environ, WINEPREFIX=str(prefix.resolve()), WINEDEBUG="-all")
+        self.prefix = prefix.resolve()
+        self.env = dict(os.environ, WINEPREFIX=str(self.prefix), WINEDEBUG="-all")
 
     def _reg(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([str(self.wine), "reg", *args], env=self.env, capture_output=True,
                               text=True, errors="replace")
 
-    def retina(self) -> Optional[str]:
-        """The RetinaMode string, or None when the value is not set."""
-        done = self._reg("query", MAC_DRIVER_KEY, "/v", "RetinaMode")
-        found = re.search(r"RetinaMode\s+REG_SZ\s+(\S*)", done.stdout)
+    def read(self, key: str, name: str) -> Optional[str]:
+        """The REG_SZ value `name` under `key`, or None when it is not set."""
+        done = self._reg("query", key, "/v", name)
+        found = re.search(re.escape(name) + r"\s+REG_SZ\s+(\S*)", done.stdout)
         return found.group(1) if done.returncode == 0 and found else None
 
-    def set_retina(self, value: Optional[str]) -> None:
+    def write(self, key: str, name: str, value: Optional[str]) -> None:
+        """Set `name` under `key` to the string `value`; None deletes it."""
         if value is None:
-            if self.retina() is None:
+            if self.read(key, name) is None:
                 return
-            done = self._reg("delete", MAC_DRIVER_KEY, "/v", "RetinaMode", "/f")
+            done = self._reg("delete", key, "/v", name, "/f")
         else:
-            done = self._reg("add", MAC_DRIVER_KEY, "/v", "RetinaMode", "/t", "REG_SZ", "/d", value, "/f")
+            done = self._reg("add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f")
         if done.returncode != 0:
             raise GfxError(f"wine reg failed: {(done.stderr or done.stdout).strip()}")
         # Wait for the prefix's wineserver to save the registry and exit.
         subprocess.run([str(self.wineserver), "-w"], env=self.env, check=False)
+
+    def retina(self) -> Optional[str]:
+        return self.read(MAC_DRIVER_KEY, "RetinaMode")
+
+    def set_retina(self, value: Optional[str]) -> None:
+        self.write(MAC_DRIVER_KEY, "RetinaMode", value)
 
 
 def conf_is_ours(conf: Path) -> bool:

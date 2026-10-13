@@ -21,5 +21,10 @@
     "kind": "anisotropy",
     "title": "Anisotropic filtering",
     "description": "Ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. A small d3d9.dll next to game.dll has mtld3d filter the game's mipmapped textures at 2x, 4x, 8x or 16x (asked when turned on; 16x by default); the installed launcher is set to load it first."
+  },
+  "reshade": {
+    "kind": "reshade",
+    "title": "ReShade post-processing",
+    "description": "crosire's ReShade as the client's d3d9.dll, with SMAA, sharpening and colour effects (and depth-based ones) you tune in its overlay (F12). Downloaded from reshade.me, Microsoft and GitHub when turned on; starts with SMAA, LumaSharpen and Vibrance. Cannot be on together with anisotropic filtering."
   }
 }

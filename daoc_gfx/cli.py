@@ -7,23 +7,27 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from . import anisotropy, display, patches, textures
+from . import anisotropy, display, patches, reshade, textures
 from .common import GfxError, check_app
 
 
 def registry_factory(args):
-    """The prefix registry, opened only when a patch needs it (Retina mode)."""
+    """The prefix registry, opened only when a patch needs it (Retina mode, reshade)."""
     def get() -> display.WineRegistry:
         if not args.wine or not args.prefix:
-            raise GfxError("Retina mode needs --wine <wine folder> and --prefix <wine prefix>")
+            raise GfxError("Retina mode and reshade need --wine <wine folder> and --prefix <wine prefix>")
         return display.WineRegistry(Path(args.wine), Path(args.prefix))
     return get
 
 
-def show_status(app: Path, launcher: Optional[Path]) -> None:
+def show_status(app: Path, launcher: Optional[Path], prefix: Optional[Path]) -> None:
     cat = patches.catalog()
-    for p, state in patches.states(app, launcher).items():
-        detail = f", {anisotropy.level(app)}x" if cat[p]["kind"] == "anisotropy" and state != "off" else ""
+    for p, state in patches.states(app, launcher, prefix).items():
+        detail = ""
+        if cat[p]["kind"] == "anisotropy" and state != "off":
+            detail = f", {anisotropy.level(app)}x"
+        elif cat[p]["kind"] == "reshade" and state != "off":
+            detail = f", ReShade {reshade.SOURCES['reshade']['version']}"
         print(f"{p:<10} {state:<14} {cat[p]['title']}{detail}")
     if display.conf_owner(app) == display.YOUR_CONF:
         print("mtld3d.conf is your own file; mtld3d patches stay off while it is there")
@@ -44,10 +48,10 @@ COMPONENT_STATE_JSON = {
 CONF_OWNER_JSON = {display.NO_CONF: "none", display.OUR_CONF: "daoc-gfx", display.YOUR_CONF: "your own"}
 
 
-def status_json(app: Path, launcher: Optional[Path]) -> dict:
+def status_json(app: Path, launcher: Optional[Path], prefix: Optional[Path]) -> dict:
     """The machine-readable status (schema 1; a breaking change bumps `schema`)."""
     cat = patches.catalog()
-    states = patches.states(app, launcher)
+    states = patches.states(app, launcher, prefix)
     aniso_on = any(cat[p]["kind"] == "anisotropy" and state != anisotropy.OFF for p, state in states.items())
     return {
         "schema": 1,
@@ -77,11 +81,12 @@ def run(args) -> None:
     app = check_app(Path(args.app))
     get_registry = registry_factory(args)
     launcher = Path(args.launcher) if args.launcher else None
+    prefix = Path(args.prefix) if args.prefix else None
     if args.command == "status":
         if args.json:
-            print(json.dumps(status_json(app, launcher), indent=2))
+            print(json.dumps(status_json(app, launcher, prefix), indent=2))
         else:
-            show_status(app, launcher)
+            show_status(app, launcher, prefix)
     elif args.command == "list":
         for p, spec in patches.catalog().items():
             print(f"{p}\n    {spec['title']}. {spec['description']}")
@@ -93,12 +98,12 @@ def run(args) -> None:
                        ids if args.command == "disable" else set(), get_registry, archives,
                        launcher=launcher, level=getattr(args, "level", None),
                        from_dir=Path(from_dir).expanduser() if from_dir else None)
-        show_status(app, launcher)
+        show_status(app, launcher, prefix)
         print("Changes take effect at the next client launch.")
     elif args.command == "select":
         if not sys.stdin.isatty():
             raise GfxError("select needs a terminal; use enable/disable <patch>...")
-        patches.select(app, get_registry, launcher=launcher)
+        patches.select(app, get_registry, launcher=launcher, prefix=prefix)
     elif args.command == "textures":
         archives = [Path(a).expanduser() for a in getattr(args, "archives", [])]
         if args.action == "inspect":
@@ -129,9 +134,9 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="daoc-gfx", description="Graphical patches for the DAoC 1.127 client "
                                 "under Wine on macOS (OfflineDAoC-macOS).")
     p.add_argument("--app", required=True, help="client app folder (the one holding game.dll)")
-    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode)")
-    p.add_argument("--wine", help="wine folder with bin/wine (Retina mode)")
-    p.add_argument("--launcher", help="OfflineDAoC-macOS launcher .app (anisotropy; default: "
+    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode, reshade)")
+    p.add_argument("--wine", help="wine folder with bin/wine (Retina mode, reshade)")
+    p.add_argument("--launcher", help="OfflineDAoC-macOS launcher .app (anisotropy, reshade; default: "
                                       "DAoCLauncher.app beside the client's OfflineDAoC folder)")
     commands = p.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="each patch and whether it is on").add_argument(

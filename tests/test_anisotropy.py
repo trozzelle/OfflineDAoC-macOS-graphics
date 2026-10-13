@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from daoc_gfx import anisotropy, patches
+from daoc_gfx import anisotropy, launcher, patches
 from daoc_gfx.common import GfxError
 from test_textures import Fixture, NOT_RUNNING, QUIET
 
@@ -20,7 +20,7 @@ class Anisotropy(Fixture):
     def setUp(self):
         super().setUp()
         self.launcher = self.tmp / "DAoCLauncher.app"
-        self.script = self.launcher / anisotropy.LAUNCHER_SCRIPT
+        self.script = self.launcher / launcher.SCRIPT
         self.script.parent.mkdir(parents=True)
         self.script.write_text(STOCK_LAUNCHER)
         os.chmod(self.script, 0o755)
@@ -103,7 +103,7 @@ class Anisotropy(Fixture):
 
         os.rename(install, self.tmp / "moved")
         self.app = self.tmp / "moved" / app.relative_to(install)
-        script = self.tmp / "moved" / "dist" / "DAoCLauncher.app" / anisotropy.LAUNCHER_SCRIPT
+        script = self.tmp / "moved" / "dist" / "DAoCLauncher.app" / launcher.SCRIPT
         self.assertEqual(patches.states(self.app)["anisotropy"], "on")
         self.change(enable=["anisotropy"], launcher=None, level=4)
         self.assertEqual(patches.states(self.app)["anisotropy"], "on")

@@ -5,7 +5,7 @@ import os
 import shutil
 import unittest
 
-from daoc_gfx import anisotropy, cli, patches, textures
+from daoc_gfx import anisotropy, cli, launcher, patches, textures
 from daoc_gfx.common import state_dir
 from test_anisotropy import STOCK_LAUNCHER
 from test_patches import MemoryRegistry
@@ -16,7 +16,7 @@ class Cli(Fixture):
     def setUp(self):
         super().setUp()
         self.launcher = self.tmp / "DAoCLauncher.app"
-        script = self.launcher / anisotropy.LAUNCHER_SCRIPT
+        script = self.launcher / launcher.SCRIPT
         script.parent.mkdir(parents=True)
         script.write_text(STOCK_LAUNCHER)
         os.chmod(script, 0o755)
@@ -43,7 +43,7 @@ class StatusJson(Cli):
         s = self.status()
         self.assertEqual(s, {"schema": 1,
                              "patches": {"retina": "off", "srgb": "off", "textures": "not installed",
-                                         "anisotropy": "off"},
+                                         "anisotropy": "off", "reshade": "off"},
                              "anisotropy_level": None,
                              "mtld3d_conf": "none",
                              "textures": {"components": [], "pending": None}})
@@ -82,7 +82,7 @@ class StatusJson(Cli):
 
     def test_the_remaining_states_keep_their_schema_1_values(self):
         self.change(enable=["anisotropy"])
-        (self.launcher / anisotropy.LAUNCHER_SCRIPT).write_text(STOCK_LAUNCHER)  # proxy left, launcher stock
+        (self.launcher / launcher.SCRIPT).write_text(STOCK_LAUNCHER)  # proxy left, launcher stock
         textures.install(self.app, self.pack(), is_running=NOT_RUNNING, log=QUIET)
         shutil.rmtree(self.app / ("zones" + textures.BACKUP))
         shutil.rmtree(self.app / "figures")

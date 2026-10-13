@@ -7,8 +7,9 @@ under Wine on macOS, as installed by
 `daoc-gfx` also works on its own against any such client.
 
 DAoC is a property of Mythic Entertainment / Broadsword Online Games (Electronic Arts).
-This is unaffiliated fan tooling. It ships no game files and no third-party art:
-texture packs are archives you download yourself.
+This is unaffiliated fan tooling. It ships no game files and no third-party art or
+binaries: texture packs are archives you download yourself, and ReShade is fetched
+from its official sources when you turn it on.
 
 ## Patches
 
@@ -21,6 +22,12 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `srgb` | [mtld3d](https://github.com/athei/mtld3d) `color.space = accurate` in `mtld3d.conf` | The key is gone (and the file, when no other patch needs it) |
 | `textures` | A texture pack's files over the client's folders, originals kept | Original files live, the pack kept aside for an instant switch back |
 | `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed launcher set to load it | Proxy and its level file removed, the launcher's line back as it was |
+| `reshade` | [ReShade](https://reshade.me) post-processing (SMAA, sharpening, colour, depth effects) as the client's `d3d9.dll`, tuned in its overlay (F12) | ReShade's files removed, your settings kept aside, the launcher's line and the prefix's DLL override back as they were |
+
+`anisotropy` and `reshade` each need to be the `d3d9.dll` next to `game.dll`, so at
+most one of them is on: `enable` of one while the other is on is refused, and the
+checklist asks again when both are ticked. Unticking one and ticking the other in
+the checklist swaps them.
 
 Every change is recorded in `.daoc-gfx/` inside the client's app folder (the
 `anisotropy` patch's own files mark themselves), and every command that changes
@@ -31,10 +38,12 @@ take effect at the next client launch.
 
 - macOS on APFS (backups are APFS clones; on other file systems they are full copies)
 - `python3` 3.9 or newer (the Xcode Command Line Tools one is enough); nothing to install
-- For `retina`: the CrossOver-based Wine and the prefix the client runs in
-  (`dist/wine` and `dist/prefix` of an OfflineDAoC-macOS install)
-- For `anisotropy`: the OfflineDAoC-macOS launcher, `dist/DAoCLauncher.app`
+- For `retina` and `reshade`: the CrossOver-based or arm64 Wine and the prefix the client runs in
+  (`dist/wine` and `dist/prefix`, or `dist/wine-arm64` and `dist/prefix-arm64`, of an
+  OfflineDAoC-macOS install)
+- For `anisotropy` and `reshade`: the OfflineDAoC-macOS launcher, `dist/DAoCLauncher.app`
   (found from the client folder; `--launcher <.app>` names another)
+- For `reshade`: a network connection the first time it is turned on (about 6 MB)
 
 Archives are read with macOS's own `bsdtar`, which handles `.7z`, `.zip` and tar files.
 
@@ -55,16 +64,17 @@ daoc-gfx … status                         # each patch and whether it is on
 daoc-gfx … list                           # the patches and what each does
 daoc-gfx … enable retina srgb
 daoc-gfx … enable anisotropy --level 8   # level only for anisotropy: 2, 4, 8 or 16
+daoc-gfx … enable reshade
 daoc-gfx … enable textures --archives A.7z B.7z   # archives only to install the pack
 daoc-gfx … disable srgb textures
 ```
 
 The checklist marks a patch `[x]` when it is on, and `[~]` when it is partly on:
-only some of the texture pack's folders have their pack files live, or
-`anisotropy` lost its launcher line to a reinstall or has an older proxy build
-after a daoc-gfx update (left as they are unless you
-toggle them). Turning `textures` on before a pack is installed asks for its
-archives; drag every part into the terminal.
+only some of the texture pack's folders have their pack files live,
+`anisotropy` or `reshade` lost its launcher line to a reinstall or has an older
+build after a daoc-gfx update, or `reshade` was not yet turned on in the prefix
+given (left as they are unless you toggle them). Turning `textures` on before a
+pack is installed asks for its archives; drag every part into the terminal.
 
 Texture-pack folders in detail:
 
@@ -179,14 +189,58 @@ for a daoc-gfx update that ships a rebuilt `d3d9.dll`: the proxy next to
 `DAOC_DLL_OVERRIDES` you set yourself still replaces the default, and with
 `d3d9=b` in it the proxy is not loaded.
 
-Only one `d3d9.dll` can sit next to `game.dll`: a ReShade or other wrapper
-already there is refused, never replaced.
+Only one `d3d9.dll` can sit next to `game.dll`: with `reshade` on, `anisotropy` is
+refused (turn `reshade` off first), and a ReShade or other wrapper of your own is
+refused, never replaced.
 
 The proxy writes `daoc-gfx-d3d9.log` next to `game.dll`: the real d3d9 it
 loaded, the level, each device it hooked, the first sampler it forced, and
 per-device totals at exit. To see the Metal samplers mtld3d creates, start the
 client with `RUST_LOG='mtld3d::d3d9=info,mtld3d::d3d9::sampler=trace'`; each new
 sampler logs a `sampler diag … aniso=<level>` line in `mtld3d-logs/`.
+
+### ReShade
+
+`reshade` puts [ReShade](https://reshade.me) by crosire (the build with full add-on
+support, whose depth access is not switched off for online games) next to
+`game.dll` as `d3d9.dll`. It sits between the game and mtld3d and draws its effects
+on every frame. Turning it on downloads the pinned files (`daoc_gfx/reshade.json`),
+checks each one's sha256, and keeps the downloads in `.daoc-gfx/downloads/`:
+
+| In the client folder | From |
+|---|---|
+| `d3d9.dll` | `ReShade32.dll` from the official ReShade 6.8.0 add-on installer |
+| `d3dcompiler_47.dll` | Microsoft's 32-bit shader compiler, from the DirectX SDK cab winetricks uses |
+| `reshade-shaders/` | The effects of [reshade-shaders](https://github.com/crosire/reshade-shaders) (`slim`) and [SweetFX](https://github.com/CeeJayDK/SweetFX) at pinned commits, checked file by file |
+| `ReShade.ini` | Search paths, `RESHADE_DEPTH_INPUT_IS_REVERSED=0` (DAoC's depth is not reversed), overlay on F12 |
+| `reshade-presets/ReShadePreset.ini` | A starter preset: SMAA, LumaSharpen, Vibrance |
+
+Press F12 in game for ReShade's overlay: tick effects, change their settings, save
+presets. ReShade's default key, Home, also moves DAoC's camera. Screenshots go to
+`reshade-screenshots/`. ReShade grades and sharpens the interface along with the
+world, as it works on the finished frame.
+
+It also sets `HKCU\Software\Wine\AppDefaults\game.dll\DllOverrides`
+`d3dcompiler_47` to `native,builtin` in the prefix: the arm64 Wine's own compiler
+(vkd3d-shader) rejects every ReShade effect, and the launcher's
+`WINEDLLOVERRIDES` cannot carry this for the arm64 Wine, whose overrides
+`daoc client start` sends itself. The value is per prefix, so after switching
+between the CrossOver and arm64 Wines, `status` shows `reshade` partly on until
+you enable it again with the other prefix. The launcher line is the one
+`anisotropy` uses, marked for `reshade`.
+
+Turning it off removes the files above except your settings: `ReShade.ini` and
+`reshade-presets/` (which ReShade rewrites as you tune it) move to
+`.daoc-gfx/reshade-kept/` and come back the next time it is turned on.
+Screenshots stay where they are. A ReShade of your own already in the folder
+(`d3d9.dll`, `ReShade.ini`, `reshade-shaders/` or `reshade-presets/`) is refused,
+never replaced or removed. A client update in OfflineDAoC-macOS turns `reshade`
+back on afterwards, but the replaced folder takes `.daoc-gfx/` with it, so
+settings kept from before start over.
+
+Measured on an M5 Ultra at 1920x1080, in world: frame rate unchanged at the
+client's own ~125 FPS limit, the game thread at 128% CPU against 123% without it.
+ReShade's per-effect GPU timings stay empty: mtld3d has no timestamp queries.
 
 ### Texture packs
 
@@ -246,7 +300,8 @@ python3 -m unittest discover -s tests
 
 The tests build small `.7z` packs with `bsdtar` and run the install, switch,
 uninstall and recovery paths and the patch toggles and checklist on a
-temporary client folder. The anisotropy tests patch a stand-in launcher. The
+temporary client folder. The anisotropy and reshade tests patch a stand-in
+launcher; the reshade tests serve stand-in downloads and use a stand-in registry. The
 sampler rule (`proxy/sampler.c`) is compiled for the host with `cc` and run
 through its transitions, and a test checks that the committed
 `daoc_gfx/d3d9.dll` was built from the current `proxy/` sources.
@@ -266,6 +321,10 @@ make -C proxy
 The folder-variant scheme (`.backup` / `.texturepack`) follows Sqeak's
 [Windows installer](https://github.com/pfisher99/Eden-DAoC-Texture-Installer).
 mtld3d and the Wine build it runs on are [athei](https://github.com/athei)'s.
+ReShade is [crosire](https://github.com/crosire/reshade)'s (BSD-3-Clause); the
+effects are crosire's and [CeeJay.dk](https://github.com/CeeJayDK/SweetFX)'s. Per
+ReShade's request, daoc-gfx never redistributes its binaries or shaders: it
+downloads them from their official sources.
 
 ## License
 
