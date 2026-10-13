@@ -1,0 +1,27 @@
+{
+  "reshade": {
+    "version": "6.8.0",
+    "url": "https://reshade.me/downloads/ReShade_Setup_6.8.0_Addon.exe",
+    "sha256": "afe4c8f13048306307983b8b3d41d5bf00a86820440b0e57dea10950e1176445",
+    "member": "ReShade32.dll",
+    "member_sha256": "da430e0a9c6eecefa0d1b27d05e16c426fb5d04e808b194d914eaac4b31bc0f8"
+  },
+  "d3dcompiler_47": {
+    "url": "https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/Installers/2630bae9681db6a9f6722366f47d055c.cab",
+    "sha256": "d0440eb81c532dc23639c0c63f2fcde9deddb23bb4cce01c19ac6b96cc3e269d",
+    "member": "fila319f706acfa16d6707473ebf29bdc7f",
+    "member_sha256": "efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f"
+  },
+  "shaders": [
+    {
+      "repo": "https://github.com/crosire/reshade-shaders",
+      "commit": "fd0022170615ce0d8162d219bff07232fa6dd84f",
+      "tree_sha256": "f3f7fbf4b57cbb54f4f2f118077ee9c84312fc7f78a0a82e3d4ea9e01519605f"
+    },
+    {
+      "repo": "https://github.com/CeeJayDK/SweetFX",
+      "commit": "93ddf39b357f5da534ed6d34ba4ec8cc7dcfa361",
+      "tree_sha256": "71e7993b1b5afd9c102f37adeb3daabf81468f561db4bcef997c13a658abfd6c"
+    }
+  ]
+}

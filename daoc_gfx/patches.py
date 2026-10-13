@@ -7,11 +7,13 @@ import shlex
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Sequence, Set
 
-from . import anisotropy, display, textures
+from . import anisotropy, display, reshade, textures
 from .common import GfxError, game_running
 
 CATALOG_FILE = Path(__file__).with_name("patches.json")
 DISPLAY_KINDS = ("retina", "mtld3d")
+# Patches that put their own d3d9.dll next to game.dll: at most one is on.
+D3D9_KINDS = ("anisotropy", "reshade")
 
 ON, OFF, PARTLY_ON = "on", "off", "partly on"
 NOT_INSTALLED = "not installed"
@@ -44,7 +46,9 @@ def texture_state(app: Path) -> str:
     return NEEDS_RECOVER
 
 
-def states(app: Path, launcher: Optional[Path] = None) -> Dict[str, str]:
+def states(app: Path, launcher: Optional[Path] = None, prefix: Optional[Path] = None) -> Dict[str, str]:
+    """Each patch's state; `prefix` (the Wine prefix the client runs in) also
+    checks the reshade patch's registry value was set there."""
     cat = catalog()
     shown = set(display.enabled(app))
 
@@ -53,8 +57,17 @@ def states(app: Path, launcher: Optional[Path] = None) -> Dict[str, str]:
             return texture_state(app)
         if kind == "anisotropy":
             return anisotropy.state(app, launcher)
+        if kind == "reshade":
+            return reshade.state(app, launcher, prefix)
         return ON if p in shown else OFF
     return {p: one(p, spec["kind"]) for p, spec in cat.items()}
+
+
+def check_one_d3d9(cat: Dict[str, dict], on: Iterable[str]) -> None:
+    both = sorted(p for p in on if cat[p]["kind"] in D3D9_KINDS)
+    if len(both) > 1:
+        raise GfxError(f"{' and '.join(both)} each load as the client's d3d9.dll, so they cannot both be on; "
+                       "turn one off")
 
 
 def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callable,
@@ -74,6 +87,8 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
     if from_dir is not None and not any(cat[p]["kind"] == "textures" for p in enable):
         raise GfxError("--from-dir is only for enable textures")
     textures.check_source(archives, from_dir, required=False)
+    now = states(app, launcher)
+    check_one_d3d9(cat, {p for p in cat if p in enable or (now[p] != OFF and p not in disable)})
 
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))
@@ -81,11 +96,16 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
     if wanted != current:
         display.apply(app, cat, wanted, get_registry, is_running)
 
+    # Off before on, so one call can swap the d3d9.dll patches.
+    for p in (p for p in cat if cat[p]["kind"] == "reshade" and p in disable):
+        reshade.disable(app, get_registry, launcher, is_running)
     for p in (p for p in cat if cat[p]["kind"] == "anisotropy"):
         if p in enable:
             anisotropy.enable(app, launcher, is_running, level)
         elif p in disable:
             anisotropy.disable(app, launcher, is_running)
+    for p in (p for p in cat if cat[p]["kind"] == "reshade" and p in enable):
+        reshade.enable(app, get_registry, launcher, is_running, log)
 
     for p in (p for p in cat if cat[p]["kind"] == "textures"):
         state = texture_state(app)
@@ -104,11 +124,12 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
 
 
 def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input, out=print,
-           is_running=game_running, log=print, launcher: Optional[Path] = None) -> bool:
+           is_running=game_running, log=print, launcher: Optional[Path] = None,
+           prefix: Optional[Path] = None) -> bool:
     """Interactive checklist. Returns whether anything changed."""
     cat = catalog()
     ids = list(cat)
-    current = states(app, launcher)
+    current = states(app, launcher, prefix)
     chosen = {p for p in ids if current[p] == ON}
     partly = {p for p in ids if current[p] == PARTLY_ON}  # left as is unless toggled
     while True:
@@ -126,6 +147,11 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
             out("nothing changed")
             return False
         if not answer:
+            try:
+                check_one_d3d9(cat, chosen | partly)
+            except GfxError as e:
+                out(str(e))
+                continue
             break
         picks = answer.replace(",", " ").split()
         bad = [t for t in picks if not t.isdigit() or not 1 <= int(t) <= len(ids)]

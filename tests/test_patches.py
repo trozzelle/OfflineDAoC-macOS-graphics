@@ -58,7 +58,7 @@ class EnableDisable(Patches):
         self.change(disable=["srgb"])
         self.assertFalse(self.conf.exists())
         self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed",
-                                         "anisotropy": "off"})
+                                         "anisotropy": "off", "reshade": "off"})
 
     def test_your_own_mtld3d_conf_blocks_only_mtld3d_patches(self):
         self.conf.write_text("render.scale = 0.75\n")
@@ -102,10 +102,10 @@ class Select(Patches):
         changed, _ = self.select("1 2", "")
         self.assertTrue(changed)
         self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed",
-                                         "anisotropy": "off"})
+                                         "anisotropy": "off", "reshade": "off"})
         self.select("2", "")
         self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed",
-                                         "anisotropy": "off"})
+                                         "anisotropy": "off", "reshade": "off"})
         self.assertEqual(self.registry.value, "y")
 
     def test_toggling_twice_or_quitting_changes_nothing(self):
