@@ -173,15 +173,21 @@ def _under(path: str, prefixes: Iterable[Path]) -> bool:
     return any(path.startswith(str(p.resolve()) + os.sep) for p in prefixes)
 
 
-def set(app: Path, prefixes: Iterable[Path], section: str, key: str, value: str,
-        is_running=game_running, log=print) -> List[Path]:
-    """Set `[section] key=value` in the client's user.dat files of `prefixes`; the paths changed."""
+def existing_user_dats(app: Path, prefixes: Iterable[Path]) -> List[Path]:
+    """`user_dats`, refused when there is none (so a caller can check before changing anything)."""
     prefixes = list(prefixes)
-    refuse_if_running(app, is_running)
     files = user_dats(app, prefixes)
     if not files:
         raise GfxError(f"no user.dat of this client in {', '.join(str(p) for p in prefixes)}; "
                        "start the client once so it writes one")
+    return files
+
+
+def set(app: Path, prefixes: Iterable[Path], section: str, key: str, value: str,
+        is_running=game_running, log=print) -> List[Path]:
+    """Set `[section] key=value` in the client's user.dat files of `prefixes`; the paths changed."""
+    refuse_if_running(app, is_running)
+    files = existing_user_dats(app, prefixes)
     record_path = state_dir(app) / STATE
     record: Dict[str, Dict[str, dict]] = (read_json(record_path) or {}).get("files", {})
     name = _entry_name(section, key)

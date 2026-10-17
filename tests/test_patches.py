@@ -1,7 +1,7 @@
 import unittest
 
-from daoc_gfx import display, patches, textures
-from daoc_gfx.common import GfxError
+from daoc_gfx import display, patches, textures, userdat
+from daoc_gfx.common import GfxError, state_dir
 from test_textures import Fixture, NOT_RUNNING, QUIET
 from test_userdat import CAMELOT, CLIENT
 
@@ -248,6 +248,42 @@ class SunShadows(Patches):
         self.change(enable=["sun-shadows"], prefix=other)
         self.assertEqual(self.state(other), "on")
 
+    def assert_untouched(self):
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.registry.value, "n")
+        self.assertFalse((state_dir(self.app) / display.STATE).exists())
+        self.assertEqual(self.state(self.prefix), "off")
+        self.assertEqual(self.state(), "off")
+
+    def test_a_registry_that_cannot_be_opened_with_retina_leaves_user_dat_alone(self):
+        def no_wine():
+            raise GfxError("Retina mode and reshade need --wine <wine folder> and --prefix <wine prefix>")
+        with self.assertRaisesRegex(GfxError, "--wine"):
+            patches.change(self.app, {"retina", "sun-shadows"}, set(), no_wine,
+                           is_running=NOT_RUNNING, log=QUIET, prefix=self.prefix)
+        self.assert_untouched()
+
+    def test_a_failing_registry_write_with_retina_leaves_user_dat_alone(self):
+        def fail(value):
+            raise GfxError("wine reg failed: access denied")
+        self.registry.set_retina = fail
+        with self.assertRaisesRegex(GfxError, "wine reg failed"):
+            self.change(enable=["retina", "sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.state(self.prefix), "off")
+        self.assertEqual(self.states()["retina"], "off")
+
+    def test_no_user_dat_with_retina_leaves_retina_mode_alone(self):
+        self.dat.unlink()
+        with self.assertRaisesRegex(GfxError, "no user.dat"):
+            self.change(enable=["retina", "sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.registry.value, "n")
+        self.assertFalse((state_dir(self.app) / display.STATE).exists())
+        self.assertFalse(self.conf.exists())
 
 
 if __name__ == "__main__":

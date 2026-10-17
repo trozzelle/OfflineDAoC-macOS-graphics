@@ -116,6 +116,21 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
         if (options_on or options_off) and prefix is None:
             raise GfxError(f"the user.dat options of {', '.join(options_on + options_off)} need "
                            "--prefix <wine prefix>")
+        if options_on:
+            userdat.existing_user_dats(app, [prefix])
+        # Everything that can refuse comes before the first change: the registry is opened
+        # (and Retina mode changed) before user.dat is touched, which a disable could not undo
+        # for a patch left out of the enabled list.
+        retina_on = any(catalog[p]["kind"] == "retina" for p in wanted)
+        retina_was = any(catalog.get(p, {}).get("kind") == "retina" for p in state["enabled"])
+        registry = get_registry() if retina_on != retina_was else None
+        if retina_on and not retina_was:
+            state["retina_before"] = registry.retina()
+            write_json(state_path, state)  # recorded before the change, so disable can restore it
+            registry.set_retina("y")
+        elif retina_was and not retina_on:
+            registry.set_retina(state.pop("retina_before", None))
+
         for p in options_off:
             for section, options in catalog[p]["userdat"].items():
                 for key in options:
@@ -124,16 +139,6 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
             for section, options in catalog[p]["userdat"].items():
                 for key, value in options.items():
                     userdat.set(app, [prefix], section, key, value, is_running=is_running, log=log)
-
-        retina_on = any(catalog[p]["kind"] == "retina" for p in wanted)
-        retina_was = any(catalog.get(p, {}).get("kind") == "retina" for p in state["enabled"])
-        if retina_on and not retina_was:
-            registry = get_registry()
-            state["retina_before"] = registry.retina()
-            write_json(state_path, state)  # recorded before the change, so disable can restore it
-            registry.set_retina("y")
-        elif retina_was and not retina_on:
-            get_registry().set_retina(state.pop("retina_before", None))
 
         if keys:
             conf.write_text(render_conf(conf_ids, keys), encoding="utf-8")
