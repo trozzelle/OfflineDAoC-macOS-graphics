@@ -304,16 +304,22 @@ temporary client folder. The anisotropy and reshade tests patch a stand-in
 launcher; the reshade tests serve stand-in downloads and use a stand-in registry. The
 sampler rule (`proxy/sampler.c`) is compiled for the host with `cc` and run
 through its transitions, and a test checks that the committed
-`daoc_gfx/d3d9.dll` was built from the current `proxy/` sources.
+`daoc_gfx/d3d9.dll` was built from the current `proxy/` sources. The same holds
+for the daoc-world ReShade add-on: its rules (`addon/world_core.c`) run on the
+host (`make -C addon test` does the same), and a test checks that the committed
+`daoc_gfx/daoc-world.addon32` was built from the current `addon/` sources.
 
-`daoc_gfx/d3d9.dll` is committed so users need no compiler. After changing
-anything in `proxy/`, rebuild it with mingw-w64 (`brew install mingw-w64`) and
-commit it. The committed DLL was built with Homebrew's mingw-w64 14.0.0
-(`i686-w64-mingw32-gcc` 16.2.0), which rebuilds it byte for byte; other
-versions build a different file.
+`daoc_gfx/d3d9.dll` and `daoc_gfx/daoc-world.addon32` are committed so users
+need no compiler. After changing anything in `proxy/` or `addon/`, rebuild the
+file with mingw-w64 (`brew install mingw-w64`) and commit it. The committed
+files were built with Homebrew's mingw-w64 14.0.0 (`i686-w64-mingw32-gcc`
+16.2.0), which rebuilds them byte for byte; other versions build a different
+file. `addon/LAYOUT.md` records the ReShade 6.8.0 ABI facts the add-on
+hard-codes and how they were derived.
 
 ```bash
 make -C proxy
+make -C addon
 ```
 
 ## Credits
