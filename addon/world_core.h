@@ -20,6 +20,10 @@
 #define DW_USAGE_RENDER_TARGET 0x4u
 #define DW_USAGE_DEPTH_STENCIL 0x30u
 
+/* D3D9 FVF bits the boundary rule reads (d3d9types.h). */
+#define DW_FVF_POSITION_MASK 0x400Eu
+#define DW_FVF_XYZRHW 0x0004u
+
 typedef struct {
     int effects_before_ui; /* 0 or 1 */
     int reflection_scale;  /* 1, 2 or 4 */
@@ -43,5 +47,23 @@ uint32_t dw_scaled_size(uint32_t native, int scale);
 /* What a resource description is to the reflection rule: 'R' a 512x512 2D render target, 'D' a 512x512 depth-stencil
  * (surface or 2D texture), 0 anything else. */
 char dw_reflection_kind(uint32_t type, uint32_t usage, uint32_t width, uint32_t height);
+
+/* The 3D/UI boundary: the first draw of a frame to the swap chain's back buffer that is orthographic, after at least
+ * one perspective back-buffer draw in the same frame. */
+struct dw_frame {
+    int saw_world; /* a perspective back-buffer draw happened this frame */
+    int fired;     /* the effects ran this frame */
+};
+
+/* 1 when a draw is orthographic: the projection's _34 == 0 and _44 == 1, or the FVF's position is XYZRHW
+ * (pre-transformed vertices, which skip the projection). */
+int dw_ortho_or_rhw(float m34, float m44, uint32_t fvf);
+
+/* Feeds one draw into the frame: a perspective draw to the back buffer sets saw_world; the first orthographic draw to
+ * the back buffer after it sets fired and returns 1 (once per frame). Draws to other render targets change nothing. */
+int dw_should_fire(struct dw_frame *f, int rt0_is_backbuffer, int ortho_or_rhw);
+
+/* Starts the next frame (on present). */
+void dw_frame_reset(struct dw_frame *f);
 
 #endif

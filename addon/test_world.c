@@ -61,6 +61,88 @@ static void reflection_kind_rt_and_depth(void)
     EXPECT(dw_reflection_kind(DW_TYPE_SURFACE, DW_USAGE_DEPTH_STENCIL, 1024, 768) == 0);
 }
 
+/* A frame's draws, in order: each is "rt0 on the back buffer, orthographic or XYZRHW". */
+#define WORLD 1, 0     /* perspective draw to the back buffer */
+#define UI 1, 1        /* orthographic draw to the back buffer */
+#define SHADOW 0, 1    /* the shadow RT's draws: orthographic, offscreen */
+#define REFLECT 0, 0   /* the reflection RT's draws: perspective, offscreen */
+
+static void boundary_fires_at_first_ui_draw(void)
+{
+    struct dw_frame f = {0, 0};
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(f.saw_world == 1 && f.fired == 0);
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+    EXPECT(f.fired == 1);
+}
+
+static void no_boundary_without_perspective_draw(void)
+{
+    struct dw_frame f = {0, 0};
+    /* Login and character-select style frames: only UI draws; the effects stay at Present. */
+    EXPECT(dw_should_fire(&f, UI) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 0);
+    EXPECT(f.saw_world == 0 && f.fired == 0);
+    /* A UI draw before the world does not count; the first one after it does. */
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+}
+
+static void boundary_fires_once_per_frame(void)
+{
+    struct dw_frame f = {0, 0};
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+    EXPECT(dw_should_fire(&f, UI) == 0);
+    EXPECT(dw_should_fire(&f, WORLD) == 0); /* a 3D model in a UI window */
+    EXPECT(dw_should_fire(&f, UI) == 0);
+    EXPECT(f.fired == 1);
+}
+
+static void offscreen_draws_never_fire(void)
+{
+    struct dw_frame f = {0, 0};
+    EXPECT(dw_should_fire(&f, SHADOW) == 0);
+    EXPECT(dw_should_fire(&f, REFLECT) == 0);
+    EXPECT(f.saw_world == 0); /* offscreen perspective draws are not the world on the back buffer */
+    EXPECT(dw_should_fire(&f, UI) == 0);
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, SHADOW) == 0);  /* after the world: still offscreen */
+    EXPECT(dw_should_fire(&f, REFLECT) == 0);
+    EXPECT(f.fired == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+}
+
+static void reset_on_present(void)
+{
+    struct dw_frame f = {0, 0};
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+    dw_frame_reset(&f);
+    EXPECT(f.saw_world == 0 && f.fired == 0);
+    EXPECT(dw_should_fire(&f, UI) == 0); /* the world of the last frame does not carry over */
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    EXPECT(dw_should_fire(&f, UI) == 1);
+    /* A frame that drew the world but no UI: the next frame starts clean. */
+    dw_frame_reset(&f);
+    EXPECT(dw_should_fire(&f, WORLD) == 0);
+    dw_frame_reset(&f);
+    EXPECT(dw_should_fire(&f, UI) == 0);
+}
+
+static void ortho_or_rhw_rule(void)
+{
+    const uint32_t xyz_tex = 0x002u | 0x100u, rhw_tex = DW_FVF_XYZRHW | 0x040u | 0x100u;
+    EXPECT(dw_ortho_or_rhw(0.0f, 1.0f, xyz_tex));   /* _34 = 0, _44 = 1 */
+    EXPECT(!dw_ortho_or_rhw(1.0f, 0.0f, xyz_tex));  /* a perspective projection */
+    EXPECT(!dw_ortho_or_rhw(0.0f, 0.5f, xyz_tex));
+    EXPECT(!dw_ortho_or_rhw(1.0f, 1.0f, xyz_tex));
+    EXPECT(dw_ortho_or_rhw(1.0f, 0.0f, rhw_tex));   /* pre-transformed vertices ignore the projection */
+    EXPECT(!dw_ortho_or_rhw(1.0f, 0.0f, 0x4002u)); /* XYZW, not XYZRHW */
+    EXPECT(!dw_ortho_or_rhw(1.0f, 0.0f, 0));       /* a vertex declaration (no FVF) */
+}
+
 static dw_config parsed(const char *text, int *rejected)
 {
     dw_config c = dw_default();
@@ -114,6 +196,7 @@ static void shipped_ini_parses(void)
     fclose(f);
     EXPECT(dw_parse(text, len, &c, warn, sizeof(warn)) == 0);
     EXPECT(c.effects_before_ui == 1);
+    EXPECT(c.reflection_scale == 2);
 }
 
 int main(void)
@@ -124,6 +207,12 @@ int main(void)
     reflection_kind_rt_and_depth();
     ini_parses_defaults();
     shipped_ini_parses();
+    boundary_fires_at_first_ui_draw();
+    no_boundary_without_perspective_draw();
+    boundary_fires_once_per_frame();
+    offscreen_draws_never_fire();
+    reset_on_present();
+    ortho_or_rhw_rule();
     if (failures)
         printf("%d failure(s)\n", failures);
     else

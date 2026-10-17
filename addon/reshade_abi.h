@@ -31,6 +31,8 @@ enum {
 /* Vtable slots ("VFTable indices"). */
 enum {
     RS_SLOT_GET_NATIVE = 0,                 /* api_object: uint64_t get_native() const */
+    RS_SLOT_RUNTIME_GET_BACK_BUFFER = 5,    /* effect_runtime: resource get_back_buffer(uint32_t index) */
+    RS_SLOT_RUNTIME_GET_CURRENT_BACK_BUFFER_INDEX = 7, /* effect_runtime: uint32_t get_current_back_buffer_index() */
     RS_SLOT_RUNTIME_GET_COMMAND_QUEUE = 8,  /* effect_runtime: command_queue *get_command_queue() */
     RS_SLOT_RUNTIME_RENDER_EFFECTS = 9,     /* effect_runtime: void render_effects(command_list *, resource_view x2) */
     RS_SLOT_QUEUE_GET_IMMEDIATE_LIST = 7,   /* command_queue: command_list *get_immediate_command_list() */
@@ -64,6 +66,19 @@ _Static_assert(offsetof(rs_resource_desc, heap) == 32, "resource_desc heap");
 _Static_assert(offsetof(rs_resource_desc, usage) == 36, "resource_desc usage");
 _Static_assert(offsetof(rs_resource_desc, flags) == 40, "resource_desc flags");
 
+/* reshade::api::resource and resource_view: one uint64_t handle. Passed by value they take 8 bytes of stack. */
+typedef uint64_t rs_handle;
+
+/* Interface virtuals (thiscall as fastcall: `this`, a dummy EDX, then the stack arguments). */
+typedef uint64_t(__fastcall *rs_get_native_fn)(void *self, void *edx);
+typedef rs_handle *(__fastcall *rs_get_back_buffer_fn)(void *self, void *edx, rs_handle *result, uint32_t index);
+typedef uint32_t(__fastcall *rs_get_current_back_buffer_index_fn)(void *self, void *edx);
+typedef void *(__fastcall *rs_get_object_fn)(void *self, void *edx); /* get_command_queue, get_immediate_command_list */
+typedef void(__fastcall *rs_render_effects_fn)(void *self, void *edx, void *cmd_list, rs_handle rtv, rs_handle rtv_srgb);
+
+/* Calls virtual `slot` of a ReShade interface object, typed as `fn`. */
+#define RS_VCALL(obj, fn, slot, ...) (((fn)(*(void ***)(obj))[slot])((obj), NULL, ##__VA_ARGS__))
+
 /* Exports of the ReShade module. */
 typedef bool(__cdecl *rs_register_addon_fn)(void *module, uint32_t api_version);
 typedef void(__cdecl *rs_unregister_addon_fn)(void *module);
@@ -73,5 +88,12 @@ typedef void(__cdecl *rs_register_event_fn)(void *module, uint32_t ev, void *cal
 typedef void(__cdecl *rs_effect_runtime_cb)(void *runtime); /* init_effect_runtime, destroy_effect_runtime */
 typedef bool(__cdecl *rs_create_resource_cb)(void *device, rs_resource_desc *desc, void *initial_data,
                                              uint32_t initial_state);
+typedef void(__cdecl *rs_bind_render_targets_cb)(void *cmd_list, uint32_t count, const rs_handle *rtvs, rs_handle dsv);
+typedef bool(__cdecl *rs_draw_cb)(void *cmd_list, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex,
+                                  uint32_t first_instance);
+typedef bool(__cdecl *rs_draw_indexed_cb)(void *cmd_list, uint32_t index_count, uint32_t instance_count,
+                                          uint32_t first_index, int32_t vertex_offset, uint32_t first_instance);
+typedef void(__cdecl *rs_present_cb)(void *queue, void *swapchain, const void *source_rect, const void *dest_rect,
+                                     uint32_t dirty_rect_count, const void *dirty_rects);
 
 #endif

@@ -105,3 +105,28 @@ char dw_reflection_kind(uint32_t type, uint32_t usage, uint32_t width, uint32_t 
         return type == DW_TYPE_TEXTURE_2D ? 'R' : 0;
     return 0;
 }
+
+int dw_ortho_or_rhw(float m34, float m44, uint32_t fvf)
+{
+    return (fvf & DW_FVF_POSITION_MASK) == DW_FVF_XYZRHW || (m34 == 0.0f && m44 == 1.0f);
+}
+
+int dw_should_fire(struct dw_frame *f, int rt0_is_backbuffer, int ortho_or_rhw)
+{
+    if (f->fired || !rt0_is_backbuffer)
+        return 0;
+    if (!ortho_or_rhw) {
+        f->saw_world = 1;
+        return 0;
+    }
+    if (!f->saw_world)
+        return 0;
+    f->fired = 1;
+    return 1;
+}
+
+void dw_frame_reset(struct dw_frame *f)
+{
+    f->saw_world = 0;
+    f->fired = 0;
+}
