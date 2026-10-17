@@ -59,5 +59,20 @@
     "mtld3d": {
       "post.godRays": "1.0"
     }
+  },
+  "sun-shadows": {
+    "kind": "mtld3d",
+    "title": "Sun shadows",
+    "description": "mtld3d draws real shadows from the sun (shadows.sun = on) for every building, tree, hill and character, moving with the time of day, with sunlight and sky light rebalanced to match (lighting.sunScale = 1.8, lighting.ambientScale = 0.65). Costs about half a millisecond of GPU time on Apple silicon. Turns the in-game Shadows option to Classic (user.dat [shadows] item1=2) while on, so the game's own projected shadows do not double up, and puts it back when turned off; needs --prefix for that. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the keys).",
+    "mtld3d": {
+      "shadows.sun": "on",
+      "lighting.sunScale": "1.8",
+      "lighting.ambientScale": "0.65"
+    },
+    "userdat": {
+      "shadows": {
+        "item1": "2"
+      }
+    }
   }
 }

@@ -1,8 +1,9 @@
 import unittest
 
-from daoc_gfx import display, patches, textures
-from daoc_gfx.common import GfxError
+from daoc_gfx import display, patches, textures, userdat
+from daoc_gfx.common import GfxError, state_dir
 from test_textures import Fixture, NOT_RUNNING, QUIET
+from test_userdat import CAMELOT, CLIENT
 
 
 class MemoryRegistry:
@@ -24,9 +25,9 @@ class Patches(Fixture):
         self.registry = MemoryRegistry("n")
         self.conf = self.app / display.CONF
 
-    def change(self, enable=(), disable=(), archives=None, from_dir=None):
+    def change(self, enable=(), disable=(), archives=None, from_dir=None, prefix=None):
         patches.change(self.app, set(enable), set(disable), lambda: self.registry, archives,
-                       is_running=NOT_RUNNING, log=QUIET, from_dir=from_dir)
+                       is_running=NOT_RUNNING, log=QUIET, from_dir=from_dir, prefix=prefix)
 
     def exported_pack(self):
         """The pack, installed from archives, exported and uninstalled again."""
@@ -59,7 +60,8 @@ class EnableDisable(Patches):
         self.assertFalse(self.conf.exists())
         self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off",
+                                         "sun-shadows": "off"})
 
     def test_figure_fog_patch_writes_key(self):
         catalog = patches.catalog()
@@ -126,11 +128,13 @@ class Select(Patches):
         self.assertTrue(changed)
         self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off",
+                                         "sun-shadows": "off"})
         self.select("2", "")
         self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off",
+                                         "sun-shadows": "off"})
         self.assertEqual(self.registry.value, "y")
 
     def test_toggling_twice_or_quitting_changes_nothing(self):
@@ -165,6 +169,121 @@ class Select(Patches):
         self.assertEqual(self.states()["textures"], "partly on")
         self.select("3", "")
         self.assertEqual(self.states()["textures"], "on")
+
+
+class SunShadows(Patches):
+    """A patch with mtld3d.conf keys and a user.dat option."""
+
+    KEYS = ["shadows.sun = on", "lighting.sunScale = 1.8", "lighting.ambientScale = 0.65"]
+
+    def setUp(self):
+        super().setUp()
+        (self.app / "paths.dat").write_bytes(b"[paths]\r\nsettings=OfflineDAoC035\r\n")
+        self.prefix = self.tmp / "prefix"
+        self.dat = self.prefix / "drive_c/users/crossover" / CAMELOT / "OfflineDAoC03" / "user.dat"
+        self.dat.parent.mkdir(parents=True)
+        self.dat.write_bytes(CLIENT)
+
+    def state(self, prefix=None):
+        return patches.states(self.app, prefix=prefix)["sun-shadows"]
+
+    def test_sun_shadows_patch_writes_keys_and_userdat(self):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        for key in self.KEYS:
+            self.assertIn(key, lines)
+        self.assertEqual(self.dat.read_bytes(), CLIENT.replace(b"item1=0", b"item1=2", 1))
+        self.assertEqual(self.state(self.prefix), "on")
+        self.assertEqual(self.state(), "on")
+
+    def test_sun_shadows_removal_restores_conf_and_userdat(self):
+        self.change(enable=["water", "sun-shadows"], prefix=self.prefix)
+        self.change(disable=["sun-shadows"], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        self.assertIn("water.fresnel = on", lines)
+        self.assertFalse(any(key in lines for key in self.KEYS))
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertEqual(self.state(self.prefix), "off")
+        self.change(disable=["water"])
+        self.assertFalse(self.conf.exists())
+
+    def test_sun_shadows_refused_without_a_prefix(self):
+        with self.assertRaisesRegex(GfxError, "sun-shadows.*--prefix"):
+            self.change(enable=["sun-shadows"])
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertEqual(self.state(), "off")
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        with self.assertRaisesRegex(GfxError, "sun-shadows.*--prefix"):
+            self.change(disable=["sun-shadows"])
+        self.assertIn("shadows.sun = on", self.conf.read_text().splitlines())
+        self.assertIn(b"item1=2", self.dat.read_bytes())
+        self.change(enable=["srgb"])  # another patch needs no prefix
+        self.assertEqual(self.state(), "on")
+
+    def test_sun_shadows_refused_without_a_user_dat_changes_nothing(self):
+        self.dat.unlink()
+        with self.assertRaisesRegex(GfxError, "no user.dat"):
+            self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.state(self.prefix), "off")
+
+    def test_sun_shadows_partly_on_when_the_option_changed_in_game_until_enabled_again(self):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.dat.write_bytes(CLIENT.replace(b"item1=0", b"item1=1", 1))  # Shadows picked in game
+        self.assertEqual(self.state(self.prefix), "partly on")
+        self.assertEqual(self.state(), "partly on")
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.state(self.prefix), "on")
+        self.change(disable=["sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)  # the value from before the patch
+
+    def test_another_prefix_is_partly_on(self):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        other = self.tmp / "prefix-arm64"
+        theirs = other / "drive_c/users/ada" / CAMELOT / "OfflineDAoC03" / "user.dat"
+        theirs.parent.mkdir(parents=True)
+        theirs.write_bytes(CLIENT)
+        self.assertEqual(self.state(other), "partly on")
+        self.change(enable=["sun-shadows"], prefix=other)
+        self.assertEqual(self.state(other), "on")
+
+    def assert_untouched(self):
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.registry.value, "n")
+        self.assertFalse((state_dir(self.app) / display.STATE).exists())
+        self.assertEqual(self.state(self.prefix), "off")
+        self.assertEqual(self.state(), "off")
+
+    def test_a_registry_that_cannot_be_opened_with_retina_leaves_user_dat_alone(self):
+        def no_wine():
+            raise GfxError("Retina mode and reshade need --wine <wine folder> and --prefix <wine prefix>")
+        with self.assertRaisesRegex(GfxError, "--wine"):
+            patches.change(self.app, {"retina", "sun-shadows"}, set(), no_wine,
+                           is_running=NOT_RUNNING, log=QUIET, prefix=self.prefix)
+        self.assert_untouched()
+
+    def test_a_failing_registry_write_with_retina_leaves_user_dat_alone(self):
+        def fail(value):
+            raise GfxError("wine reg failed: access denied")
+        self.registry.set_retina = fail
+        with self.assertRaisesRegex(GfxError, "wine reg failed"):
+            self.change(enable=["retina", "sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.state(self.prefix), "off")
+        self.assertEqual(self.states()["retina"], "off")
+
+    def test_no_user_dat_with_retina_leaves_retina_mode_alone(self):
+        self.dat.unlink()
+        with self.assertRaisesRegex(GfxError, "no user.dat"):
+            self.change(enable=["retina", "sun-shadows"], prefix=self.prefix)
+        self.assertEqual(self.registry.value, "n")
+        self.assertFalse((state_dir(self.app) / display.STATE).exists())
+        self.assertFalse(self.conf.exists())
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from daoc_gfx.common import state_dir
 from test_anisotropy import STOCK_LAUNCHER
 from test_patches import MemoryRegistry
 from test_textures import Fixture, NOT_RUNNING, QUIET
+from test_userdat import CAMELOT, CLIENT
 
 
 class Cli(Fixture):
@@ -44,7 +45,8 @@ class StatusJson(Cli):
         self.assertEqual(s, {"schema": 1,
                              "patches": {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"},
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off",
+                                         "sun-shadows": "off"},
                              "anisotropy_level": None,
                              "mtld3d_conf": "none",
                              "textures": {"components": [], "pending": None}})
@@ -100,6 +102,24 @@ class StatusJson(Cli):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("not a DAoC client app folder", err)
+
+    def test_sun_shadows_take_the_prefix_and_report_its_user_dat(self):
+        prefix = self.tmp / "prefix"
+        dat = prefix / "drive_c/users/crossover" / CAMELOT / "OfflineDAoC03" / "user.dat"
+        dat.parent.mkdir(parents=True)
+        dat.write_bytes(CLIENT)
+        code, out, err = self.main("enable", "sun-shadows")
+        self.assertEqual(code, 1)
+        self.assertIn("--prefix", err)
+        code, out, err = self.main("--prefix", str(prefix), "enable", "sun-shadows")
+        self.assertEqual(code, 0, err)
+        self.assertIn(b"item1=2", dat.read_bytes())
+        self.assertEqual(self.status()["patches"]["sun-shadows"], "on")
+        dat.write_bytes(CLIENT)  # Shadows set back in game
+        self.assertEqual(self.status()["patches"]["sun-shadows"], "partly on")
+        code, out, err = self.main("--prefix", str(prefix), "disable", "sun-shadows")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.status()["patches"]["sun-shadows"], "off")
 
 
 class TextureFolders(Cli):
