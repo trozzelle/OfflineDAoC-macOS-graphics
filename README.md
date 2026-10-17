@@ -233,8 +233,8 @@ presets. ReShade's default key, Home, also moves DAoC's camera. Screenshots go t
 with the world, as it works on the finished frame.
 
 The `daoc-world` add-on runs the ReShade effects before the game draws its UI, so
-the interface keeps its own colours (frames with no 3D scene, such as login and
-character select, get them at Present), and renders the water reflection at twice
+the interface keeps its own colours (character select, which draws 3D models, too;
+screens with no 3D draw, such as login and loading, get them at Present), and renders the water reflection at twice
 the game's 512x512 (`reflection_scale = 2`). Change `effects_before_ui` (0 or 1) and
 `reflection_scale` (1, 2 or 4) in `daoc-world.ini` next to `game.dll` and restart the
 client; the add-on writes what it read and did to `daoc-world.log` beside it.

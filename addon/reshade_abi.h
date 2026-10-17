@@ -24,8 +24,6 @@ enum {
     RS_EV_DRAW = 52,
     RS_EV_DRAW_INDEXED = 53,
     RS_EV_PRESENT = 74,
-    RS_EV_RESHADE_BEGIN_EFFECTS = 76,
-    RS_EV_RESHADE_FINISH_EFFECTS = 77,
 };
 
 /* Vtable slots ("VFTable indices"). */

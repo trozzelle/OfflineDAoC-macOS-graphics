@@ -15,7 +15,8 @@
  * 3D/UI boundary (world_core.h). Right before that draw the add-on calls the runtime's render_effects on the back
  * buffer, between a capture and an apply of a D3DSBT_ALL state block. render_effects marks the frame's effects done,
  * so ReShade skips its own pass at Present that frame (runtime.cpp at v6.8.0, `_effects_rendered_this_frame`);
- * frames with no boundary (login, character select) still get the effects at Present. After the boundary, and when
+ * character select draws 3D models, so it fires the boundary too; frames with no perspective back-buffer draw (login,
+ * loading) still get the effects at Present. After the boundary, and when
  * the frame draws offscreen, a draw costs a flag test.
  *
  * Reads daoc-world.ini beside this file once, at load (defaults: effects_before_ui 0, reflection_scale 1), and
@@ -58,7 +59,6 @@ static void *runtime;
 static rs_handle back_buffer;   /* the runtime's current back buffer, read at init_effect_runtime */
 static int rt0_is_back_buffer;  /* render target 0 is the back buffer (bind_render_targets_and_depth_stencil) */
 static struct dw_frame frame;
-static IDirect3DDevice9 *state_device; /* the device state_block belongs to */
 static IDirect3DStateBlock9 *state_block;
 static unsigned presents;      /* since the runtime came up, for the log */
 static int logged_fire, logged_no_transform, logged_no_state_block;
@@ -67,7 +67,7 @@ static int logged_fire, logged_no_transform, logged_no_state_block;
 
 static void log_line(const char *fmt, ...)
 {
-    char buf[512];
+    char buf[1024 + 2]; /* wvsprintfA writes at most 1024 chars, plus CR LF */
     va_list ap;
     DWORD n, written;
     if (log_file == INVALID_HANDLE_VALUE)
@@ -172,7 +172,6 @@ static void release_state_block(void)
     if (state_block)
         IDirect3DStateBlock9_Release(state_block);
     state_block = NULL;
-    state_device = NULL;
 }
 
 static void __cdecl on_init_effect_runtime(void *rt)
@@ -213,8 +212,6 @@ static void __cdecl on_bind_render_targets(void *cmd_list, uint32_t count, const
 static void render_before_ui(IDirect3DDevice9 *dev)
 {
     void *queue, *list;
-    if (state_block && state_device != dev)
-        release_state_block();
     if (!state_block) {
         if (FAILED(IDirect3DDevice9_CreateStateBlock(dev, D3DSBT_ALL, &state_block))) {
             state_block = NULL;
@@ -224,7 +221,6 @@ static void render_before_ui(IDirect3DDevice9 *dev)
             }
             return;
         }
-        state_device = dev;
     }
     IDirect3DStateBlock9_Capture(state_block);
     queue = RS_VCALL(runtime, rs_get_object_fn, RS_SLOT_RUNTIME_GET_COMMAND_QUEUE);
@@ -295,6 +291,13 @@ static const rs_draw_indexed_cb cb_draw_indexed = on_draw_indexed;
 static const rs_present_cb cb_present = on_present;
 
 /* ReShade calls this (as bool(*)(HMODULE, HMODULE), cdecl) after loading the add-on; false unloads it. */
+static void close_log(void)
+{
+    if (log_file != INVALID_HANDLE_VALUE)
+        CloseHandle(log_file);
+    log_file = INVALID_HANDLE_VALUE;
+}
+
 __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE reshade_module)
 {
     rs_register_addon_fn reg;
@@ -307,10 +310,12 @@ __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE reshade_modul
     ev = (rs_register_event_fn)GetProcAddress(reshade_module, "ReShadeRegisterEventForAddon");
     if (!reg || !ev) {
         log_line("error: ReShade exports missing (register %p, event %p)", (void *)reg, (void *)ev);
+        close_log();
         return false;
     }
     if (!reg(addon_module, RS_API_VERSION)) {
         log_line("error: ReShadeRegisterAddon(api %u) refused", RS_API_VERSION);
+        close_log();
         return false;
     }
     ev(addon_module, RS_EV_INIT_EFFECT_RUNTIME, (void *)cb_init_runtime);
@@ -334,7 +339,5 @@ __declspec(dllexport) void AddonUninit(HMODULE addon_module, HMODULE reshade_mod
     if (unreg)
         unreg(addon_module);
     log_line("unloaded");
-    if (log_file != INVALID_HANDLE_VALUE)
-        CloseHandle(log_file);
-    log_file = INVALID_HANDLE_VALUE;
+    close_log();
 }
