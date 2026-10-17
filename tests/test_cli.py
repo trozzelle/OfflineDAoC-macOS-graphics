@@ -44,7 +44,7 @@ class StatusJson(Cli):
         self.assertEqual(s, {"schema": 1,
                              "patches": {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off"},
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"},
                              "anisotropy_level": None,
                              "mtld3d_conf": "none",
                              "textures": {"components": [], "pending": None}})

@@ -43,5 +43,21 @@
       "water.fresnel": "on",
       "water.glint": "1.0"
     }
+  },
+  "ambient-occlusion": {
+    "kind": "mtld3d",
+    "title": "Ambient occlusion",
+    "description": "mtld3d adds screen-space ambient occlusion from the game's own depth (post.ao = 1.0), applied to the 3D world before the UI is drawn (the UI is untouched): contact shadows under stones, figures and buildings, and deeper creases in dungeons. Costs a fraction of a millisecond of GPU time on Apple silicon. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the key).",
+    "mtld3d": {
+      "post.ao": "1.0"
+    }
+  },
+  "god-rays": {
+    "kind": "mtld3d",
+    "title": "God rays",
+    "description": "mtld3d draws light shafts and haze from the sun through trees when you face a low sun (post.godRays = 1.0); nothing is drawn when the sun is off screen, behind you or below the horizon. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the key).",
+    "mtld3d": {
+      "post.godRays": "1.0"
+    }
   }
 }
