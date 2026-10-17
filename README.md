@@ -23,6 +23,8 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `textures` | A texture pack's files over the client's folders, originals kept | Original files live, the pack kept aside for an instant switch back |
 | `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed launcher set to load it | Proxy and its level file removed, the launcher's line back as it was |
 | `reshade` | [ReShade](https://reshade.me) post-processing (SMAA, sharpening, colour, depth effects) as the client's `d3d9.dll`, tuned in its overlay (F12) | ReShade's files removed, your settings kept aside, the launcher's line and the prefix's DLL override back as they were |
+| `figure-fog` | mtld3d `fog.figures = on`: distant characters take the world's fog | The key is gone (and the file, when no other patch needs it) |
+| `water` | mtld3d `water.fresnel = on`, `water.glint = 1.0`: Fresnel and a sun glint on reflective water | The key is gone (and the file, when no other patch needs it) |
 
 `anisotropy` and `reshade` each need to be the `d3d9.dll` next to `game.dll`, so at
 most one of them is on: `enable` of one while the other is on is refused, and the
@@ -150,6 +152,14 @@ empty, and `--from-dir` skips them. Your folder is copied, not moved.
   panel; the default (`color.space = passthrough`) shows the game's colours at the
   panel's native primaries, more saturated on a wide-gamut display. See mtld3d's
   [`mtld3d.conf`](https://github.com/athei/mtld3d/blob/main/mtld3d.conf).
+- **`figure-fog`.** Distant characters take the world's linear fog, so they match the
+  terrain around them. Stock figures use their own exponential haze, up to ~20 % at
+  the 6000-unit figure clip, where the terrain is still clear.
+- **`water`.** Reflective water gets Fresnel (more reflective at grazing angles, more
+  transparent looking down) and a sun glint. Needs the in-game water reflections on.
+
+`figure-fog` and `water` need the daoc mtld3d fork build, which `daoc client install`
+ships; stock mtld3d ignores keys it does not know.
 
 `mtld3d.conf` is written next to `game.dll` with a first-line marker. A
 `mtld3d.conf` of your own (no marker) is never overwritten or deleted: mtld3d
@@ -214,11 +224,20 @@ checks each one's sha256, and keeps the downloads in `.daoc-gfx/downloads/`:
 | `reshade-shaders/` | The effects of [reshade-shaders](https://github.com/crosire/reshade-shaders) (`slim`) and [SweetFX](https://github.com/CeeJayDK/SweetFX) at pinned commits, checked file by file |
 | `ReShade.ini` | Search paths, `RESHADE_DEPTH_INPUT_IS_REVERSED=0` (DAoC's depth is not reversed), overlay on F12 |
 | `reshade-presets/ReShadePreset.ini` | A starter preset: SMAA, LumaSharpen, Vibrance |
+| `daoc-world.addon32` | This repo's ReShade add-on (`addon/`, built and committed as `daoc_gfx/daoc-world.addon32`) |
+| `daoc-world.ini` | The add-on's settings, from `addon/daoc-world.ini` |
 
 Press F12 in game for ReShade's overlay: tick effects, change their settings, save
 presets. ReShade's default key, Home, also moves DAoC's camera. Screenshots go to
-`reshade-screenshots/`. ReShade grades and sharpens the interface along with the
-world, as it works on the finished frame.
+`reshade-screenshots/`. On its own, ReShade grades and sharpens the interface along
+with the world, as it works on the finished frame.
+
+The `daoc-world` add-on runs the ReShade effects before the game draws its UI, so
+the interface keeps its own colours (character select, which draws 3D models, too;
+screens with no 3D draw, such as login and loading, get them at Present), and renders the water reflection at twice
+the game's 512x512 (`reflection_scale = 2`). Change `effects_before_ui` (0 or 1) and
+`reflection_scale` (1, 2 or 4) in `daoc-world.ini` next to `game.dll` and restart the
+client; the add-on writes what it read and did to `daoc-world.log` beside it.
 
 It also sets `HKCU\Software\Wine\AppDefaults\game.dll\DllOverrides`
 `d3dcompiler_47` to `native,builtin` in the prefix: the arm64 Wine's own compiler
@@ -229,9 +248,10 @@ between the CrossOver and arm64 Wines, `status` shows `reshade` partly on until
 you enable it again with the other prefix. The launcher line is the one
 `anisotropy` uses, marked for `reshade`.
 
-Turning it off removes the files above except your settings: `ReShade.ini` and
-`reshade-presets/` (which ReShade rewrites as you tune it) move to
-`.daoc-gfx/reshade-kept/` and come back the next time it is turned on.
+Turning it off removes the files above except your settings: `ReShade.ini`,
+`daoc-world.ini` and `reshade-presets/` (which ReShade rewrites as you tune it) move to
+`.daoc-gfx/reshade-kept/` and come back the next time it is turned on; `daoc-world.log`
+goes too.
 Screenshots stay where they are. A ReShade of your own already in the folder
 (`d3d9.dll`, `ReShade.ini`, `reshade-shaders/` or `reshade-presets/`) is refused,
 never replaced or removed. A client update in OfflineDAoC-macOS turns `reshade`
@@ -304,16 +324,22 @@ temporary client folder. The anisotropy and reshade tests patch a stand-in
 launcher; the reshade tests serve stand-in downloads and use a stand-in registry. The
 sampler rule (`proxy/sampler.c`) is compiled for the host with `cc` and run
 through its transitions, and a test checks that the committed
-`daoc_gfx/d3d9.dll` was built from the current `proxy/` sources.
+`daoc_gfx/d3d9.dll` was built from the current `proxy/` sources. The same holds
+for the daoc-world ReShade add-on: its rules (`addon/world_core.c`) run on the
+host (`make -C addon test` does the same), and a test checks that the committed
+`daoc_gfx/daoc-world.addon32` was built from the current `addon/` sources.
 
-`daoc_gfx/d3d9.dll` is committed so users need no compiler. After changing
-anything in `proxy/`, rebuild it with mingw-w64 (`brew install mingw-w64`) and
-commit it. The committed DLL was built with Homebrew's mingw-w64 14.0.0
-(`i686-w64-mingw32-gcc` 16.2.0), which rebuilds it byte for byte; other
-versions build a different file.
+`daoc_gfx/d3d9.dll` and `daoc_gfx/daoc-world.addon32` are committed so users
+need no compiler. After changing anything in `proxy/` or `addon/`, rebuild the
+file with mingw-w64 (`brew install mingw-w64`) and commit it. The committed
+files were built with Homebrew's mingw-w64 14.0.0 (`i686-w64-mingw32-gcc`
+16.2.0), which rebuilds them byte for byte; other versions build a different
+file. `addon/LAYOUT.md` records the ReShade 6.8.0 ABI facts the add-on
+hard-codes and how they were derived.
 
 ```bash
 make -C proxy
+make -C addon
 ```
 
 ## Credits
