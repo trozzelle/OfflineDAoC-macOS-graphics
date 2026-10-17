@@ -59,7 +59,7 @@ class EnableDisable(Patches):
         self.assertFalse(self.conf.exists())
         self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
 
     def test_figure_fog_patch_writes_key(self):
         catalog = patches.catalog()
@@ -71,6 +71,16 @@ class EnableDisable(Patches):
         self.assertIn("water.fresnel = on", lines)
         self.assertIn("water.glint = 1.0", lines)
         display.apply(self.app, catalog, set(), lambda: self.registry, is_running=NOT_RUNNING)
+        self.assertFalse(self.conf.exists())
+
+    def test_ambient_occlusion_and_god_rays_write_keys(self):
+        self.change(enable=["ambient-occlusion", "god-rays"])
+        lines = self.conf.read_text().splitlines()
+        self.assertIn("post.ao = 1.0", lines)
+        self.assertIn("post.godRays = 1.0", lines)
+        self.assertEqual(self.states()["ambient-occlusion"], "on")
+        self.assertEqual(self.states()["god-rays"], "on")
+        self.change(disable=["ambient-occlusion", "god-rays"])
         self.assertFalse(self.conf.exists())
 
     def test_your_own_mtld3d_conf_blocks_only_mtld3d_patches(self):
@@ -116,11 +126,11 @@ class Select(Patches):
         self.assertTrue(changed)
         self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
         self.select("2", "")
         self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
-                                         "water": "off"})
+                                         "water": "off", "ambient-occlusion": "off", "god-rays": "off"})
         self.assertEqual(self.registry.value, "y")
 
     def test_toggling_twice_or_quitting_changes_nothing(self):
@@ -129,9 +139,9 @@ class Select(Patches):
         self.assertEqual(self.states()["retina"], "off")
 
     def test_bad_number_is_reported_and_asked_again(self):
-        changed, shown = self.select("9", "x", "2", "")
+        changed, shown = self.select("99", "x", "2", "")
         self.assertTrue(changed)
-        self.assertIn("not a choice: 9", shown)
+        self.assertIn("not a choice: 99", shown)
         self.assertIn("not a choice: x", shown)
         self.assertEqual(self.states()["srgb"], "on")
 

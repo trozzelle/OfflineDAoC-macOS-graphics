@@ -25,6 +25,8 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `reshade` | [ReShade](https://reshade.me) post-processing (SMAA, sharpening, colour, depth effects) as the client's `d3d9.dll`, tuned in its overlay (F12) | ReShade's files removed, your settings kept aside, the launcher's line and the prefix's DLL override back as they were |
 | `figure-fog` | mtld3d `fog.figures = on`: distant characters take the world's fog | The key is gone (and the file, when no other patch needs it) |
 | `water` | mtld3d `water.fresnel = on`, `water.glint = 1.0`: Fresnel and a sun glint on reflective water | The key is gone (and the file, when no other patch needs it) |
+| `ambient-occlusion` | mtld3d `post.ao = 1.0`: screen-space ambient occlusion on the 3D world | The key is gone (and the file, when no other patch needs it) |
+| `god-rays` | mtld3d `post.godRays = 1.0`: light shafts from a low sun | The key is gone (and the file, when no other patch needs it) |
 
 `anisotropy` and `reshade` each need to be the `d3d9.dll` next to `game.dll`, so at
 most one of them is on: `enable` of one while the other is on is refused, and the
@@ -157,8 +159,14 @@ empty, and `--from-dir` skips them. Your folder is copied, not moved.
   the 6000-unit figure clip, where the terrain is still clear.
 - **`water`.** Reflective water gets Fresnel (more reflective at grazing angles, more
   transparent looking down) and a sun glint. Needs the in-game water reflections on.
+- **`ambient-occlusion`.** Screen-space ambient occlusion from the game's own depth,
+  applied to the 3D world before the UI is drawn (the UI is untouched): contact
+  shadows under stones, figures and buildings, and deeper creases in dungeons. Costs a
+  fraction of a millisecond of GPU time on Apple silicon.
+- **`god-rays`.** Light shafts and haze from the sun through trees when you face a low
+  sun; nothing is drawn when the sun is off screen, behind you or below the horizon.
 
-`figure-fog` and `water` need the daoc mtld3d fork build, which `daoc client install`
+`figure-fog`, `water`, `ambient-occlusion` and `god-rays` need the daoc mtld3d fork build, which `daoc client install`
 ships; stock mtld3d ignores keys it does not know.
 
 `mtld3d.conf` is written next to `game.dll` with a first-line marker. A
