@@ -170,7 +170,7 @@ empty, and `--from-dir` skips them. Your folder is copied, not moved.
   sun; nothing is drawn when the sun is off screen, behind you or below the horizon.
 - **`sun-shadows`.** Real shadows from the sun for every building, tree, hill and
   character, moving with the time of day, with sunlight and sky light rebalanced to
-  match. Costs about 1–2 ms of GPU time on Apple silicon. While it is on, the in-game
+  match. Costs about half a millisecond of GPU time on Apple silicon. While it is on, the in-game
   Shadows option is Classic (`[shadows] item1=2` in the client's `user.dat`), so the
   game's own projected shadows do not double up (the fork also skips the classic blob
   shadows); turning it off puts back the value from before, leaving every other option
