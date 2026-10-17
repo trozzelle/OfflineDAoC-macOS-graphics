@@ -10,14 +10,17 @@ committed here), checks their sha256, and puts next to game.dll:
   reshade-shaders/     the effects of the pinned shader repositories
   ReShade.ini          search paths, DAoC's depth layout, the overlay key (F12)
   reshade-presets/     ReShadePreset.ini, a starter preset
+  daoc-world.addon32   this repo's ReShade add-on (addon/): effects before the
+                       UI, a larger water reflection
+  daoc-world.ini       its settings (from addon/daoc-world.ini)
 
 It sets the launcher line to d3d9=n,b (launcher.py) and, in the prefix,
 HKCU\\Software\\Wine\\AppDefaults\\game.dll\\DllOverrides d3dcompiler_47 to
 native,builtin, recording the value from before for each prefix it set.
 
 Turning it off removes the files it put there, puts the launcher line and the
-registry value back, and keeps ReShade.ini and reshade-presets/ (your settings
-and presets, which ReShade rewrites as you tune them) aside in
+registry value back, and keeps ReShade.ini, daoc-world.ini and reshade-presets/
+(your settings and presets, which ReShade rewrites as you tune them) aside in
 .daoc-gfx/reshade-kept/ for the next time it is turned on. Screenshots
 (reshade-screenshots/) are yours and stay.
 
@@ -54,6 +57,11 @@ KEPT = "reshade-kept"
 STAGING = "reshade-staging"
 DOWNLOADS = "downloads"
 RESHADE_MARKER = b"crosire's ReShade"
+ADDON = Path(__file__).with_name("daoc-world.addon32")
+ADDON_INI = Path(__file__).resolve().parent.parent / "addon" / "daoc-world.ini"
+ADDON_TARGET = ADDON.name
+ADDON_INI_TARGET = ADDON_INI.name
+ADDON_LOG = "daoc-world.log"
 
 OVERRIDE_KEY = r"HKCU\Software\Wine\AppDefaults\game.dll\DllOverrides"
 OVERRIDE_NAME = "d3dcompiler_47"
@@ -139,6 +147,17 @@ def _compiler_current(app: Path) -> bool:
     return path.is_file() and _sha256(path) == SOURCES["d3dcompiler_47"]["member_sha256"]
 
 
+def _addon_current(app: Path) -> bool:
+    path = app / ADDON_TARGET
+    return path.is_file() and path.read_bytes() == ADDON.read_bytes()
+
+
+def _copy(src: Path, dest: Path) -> None:
+    tmp = dest.with_name(dest.name + ".tmp")
+    shutil.copyfile(src, tmp)
+    os.replace(tmp, dest)
+
+
 def _shader_commits() -> List[str]:
     return [s["commit"] for s in SOURCES["shaders"]]
 
@@ -160,6 +179,7 @@ def state(app: Path, launcher: Optional[Path] = None, prefix: Optional[Path] = N
     if record is None and d3d9 != "current" and owner != NAME:
         return OFF
     if (record is not None and d3d9 == "current" and owner == NAME and _compiler_current(app)
+            and _addon_current(app)
             and (app / SHADERS).is_dir() and record.get("shaders") == _shader_commits()
             and (prefix is None or str(prefix.resolve()) in record.get("overrides", {}))):
         return ON
@@ -312,11 +332,15 @@ def enable(app: Path, get_registry: Callable, launcher: Optional[Path] = None, i
         if need_compiler:
             _place(compiler, app / COMPILER)
         kept = state_dir(app) / KEPT  # your settings from the last time it was on
-        for name in (INI, PRESETS):
+        for name in (INI, ADDON_INI_TARGET, PRESETS):
             if not (app / name).exists() and (kept / name).exists():
                 _place(kept / name, app / name)
         if not (app / INI).exists():
             (app / INI).write_bytes(_crlf(INI_TEXT))
+        if not (app / ADDON_INI_TARGET).exists():
+            _copy(ADDON_INI, app / ADDON_INI_TARGET)
+        if not _addon_current(app):
+            _copy(ADDON, app / ADDON_TARGET)
         if not (app / PRESETS).exists():
             (app / PRESETS).mkdir()
             (app / PRESETS / PRESET).write_bytes(_crlf(PRESET_TEXT))
@@ -358,8 +382,10 @@ def disable(app: Path, get_registry: Callable, launcher: Optional[Path] = None, 
             if (app / SHADERS).is_dir():
                 shutil.rmtree(app / SHADERS)
             (app / LOG).unlink(missing_ok=True)
+            (app / ADDON_TARGET).unlink(missing_ok=True)
+            (app / ADDON_LOG).unlink(missing_ok=True)
             kept = state_dir(app) / KEPT
-            for name in (INI, PRESETS):
+            for name in (INI, ADDON_INI_TARGET, PRESETS):
                 if (app / name).exists():
                     kept.mkdir(exist_ok=True)
                     if (kept / name).is_dir():

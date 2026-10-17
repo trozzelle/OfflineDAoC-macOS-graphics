@@ -180,6 +180,41 @@ class OnOff(ReShade):
         self.assertEqual((self.app / "d3d9.dll").read_bytes(), newer)
         self.assertEqual(self.state(), "on")
 
+    def test_reshade_patch_installs_addon(self):
+        self.change(enable=["reshade"])
+        app = self.app
+        self.assertEqual((app / "daoc-world.addon32").read_bytes(), reshade.ADDON.read_bytes())
+        self.assertEqual((app / "daoc-world.ini").read_bytes(), reshade.ADDON_INI.read_bytes())
+        self.assertEqual(self.state(), "on")
+
+        # The ini is yours: what is in it never changes the state.
+        (app / "daoc-world.ini").write_text("effects_before_ui = 0\n")
+        self.assertEqual(self.state(), "on")
+        # An add-on that is missing or not the committed build is partly on until enabled again.
+        (app / "daoc-world.addon32").write_bytes(b"MZ an older daoc-world")
+        self.assertEqual(self.state(), "partly on")
+        self.change(enable=["reshade"])
+        self.assertEqual((app / "daoc-world.addon32").read_bytes(), reshade.ADDON.read_bytes())
+        self.assertEqual((app / "daoc-world.ini").read_text(), "effects_before_ui = 0\n")
+        (app / "daoc-world.addon32").unlink()
+        self.assertEqual(self.state(), "partly on")
+        self.change(enable=["reshade"])
+        self.assertEqual(self.state(), "on")
+
+    def test_reshade_patch_removes_addon(self):
+        self.change(enable=["reshade"])
+        app = self.app
+        (app / "daoc-world.ini").write_text("reflection_scale = 4\n")
+        (app / "daoc-world.log").write_text("log")
+        self.change(disable=["reshade"])
+        self.assertEqual(self.state(), "off")
+        for name in ("daoc-world.addon32", "daoc-world.ini", "daoc-world.log"):
+            self.assertFalse((app / name).exists(), name)
+        self.assertEqual(snapshot(app), self.original)
+        self.change(enable=["reshade"])  # your ini comes back
+        self.assertEqual((app / "daoc-world.ini").read_text(), "reflection_scale = 4\n")
+        self.assertEqual((app / "daoc-world.addon32").read_bytes(), reshade.ADDON.read_bytes())
+
 
 class Refusals(ReShade):
     def test_a_download_that_is_not_the_pinned_file_changes_nothing(self):

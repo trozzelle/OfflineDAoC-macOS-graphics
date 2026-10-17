@@ -26,5 +26,22 @@
     "kind": "reshade",
     "title": "ReShade post-processing",
     "description": "crosire's ReShade as the client's d3d9.dll, with SMAA, sharpening and colour effects (and depth-based ones) you tune in its overlay (F12). Downloaded from reshade.me, Microsoft and GitHub when turned on; starts with SMAA, LumaSharpen and Vibrance. Cannot be on together with anisotropic filtering."
+  },
+  "figure-fog": {
+    "kind": "mtld3d",
+    "title": "Fog on distant characters",
+    "description": "mtld3d gives characters the world's linear fog (fog.figures = on), so distant ones match the terrain around them; stock figures use their own exponential haze, up to ~20 % at the 6000-unit figure clip, where the terrain is still clear. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the key).",
+    "mtld3d": {
+      "fog.figures": "on"
+    }
+  },
+  "water": {
+    "kind": "mtld3d",
+    "title": "Water Fresnel and sun glint",
+    "description": "mtld3d shades reflective water with Fresnel (water.fresnel = on: more reflective at grazing angles, more transparent looking down) and a sun glint (water.glint = 1.0). Needs the in-game water reflections on, and the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the keys).",
+    "mtld3d": {
+      "water.fresnel": "on",
+      "water.glint": "1.0"
+    }
   }
 }
