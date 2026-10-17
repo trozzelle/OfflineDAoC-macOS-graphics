@@ -27,6 +27,7 @@ name (`enable` / `disable`). The catalog is `daoc_gfx/patches.json`.
 | `water` | mtld3d `water.fresnel = on`, `water.glint = 1.0`: Fresnel and a sun glint on reflective water | The key is gone (and the file, when no other patch needs it) |
 | `ambient-occlusion` | mtld3d `post.ao = 1.0`: screen-space ambient occlusion on the 3D world | The key is gone (and the file, when no other patch needs it) |
 | `god-rays` | mtld3d `post.godRays = 1.0`: light shafts from a low sun | The key is gone (and the file, when no other patch needs it) |
+| `sun-shadows` | mtld3d `shadows.sun = on`, `lighting.sunScale = 1.8`, `lighting.ambientScale = 0.65`: real sun shadows; the in-game Shadows option set to Classic in `user.dat` (`[shadows] item1=2`) | The keys are gone (and the file, when no other patch needs it), the Shadows option back as it was |
 
 `anisotropy` and `reshade` each need to be the `d3d9.dll` next to `game.dll`, so at
 most one of them is on: `enable` of one while the other is on is refused, and the
@@ -44,7 +45,7 @@ take effect at the next client launch.
 - `python3` 3.9 or newer (the Xcode Command Line Tools one is enough); nothing to install
 - For `retina` and `reshade`: the CrossOver-based or arm64 Wine and the prefix the client runs in
   (`dist/wine` and `dist/prefix`, or `dist/wine-arm64` and `dist/prefix-arm64`, of an
-  OfflineDAoC-macOS install)
+  OfflineDAoC-macOS install); for `sun-shadows`, the prefix
 - For `anisotropy` and `reshade`: the OfflineDAoC-macOS launcher, `dist/DAoCLauncher.app`
   (found from the client folder; `--launcher <.app>` names another)
 - For `reshade`: a network connection the first time it is turned on (about 6 MB)
@@ -76,9 +77,11 @@ daoc-gfx … disable srgb textures
 The checklist marks a patch `[x]` when it is on, and `[~]` when it is partly on:
 only some of the texture pack's folders have their pack files live,
 `anisotropy` or `reshade` lost its launcher line to a reinstall or has an older
-build after a daoc-gfx update, or `reshade` was not yet turned on in the prefix
-given (left as they are unless you toggle them). Turning `textures` on before a
-pack is installed asks for its archives; drag every part into the terminal.
+build after a daoc-gfx update, `reshade` was not yet turned on in the prefix
+given, or `sun-shadows` lost its Shadows option in `user.dat` to a change in
+game or was not yet set in the prefix given (left as they are unless you toggle
+them). Turning `textures` on before a pack is installed asks for its archives;
+drag every part into the terminal.
 
 Texture-pack folders in detail:
 
@@ -165,9 +168,19 @@ empty, and `--from-dir` skips them. Your folder is copied, not moved.
   fraction of a millisecond of GPU time on Apple silicon.
 - **`god-rays`.** Light shafts and haze from the sun through trees when you face a low
   sun; nothing is drawn when the sun is off screen, behind you or below the horizon.
+- **`sun-shadows`.** Real shadows from the sun for every building, tree, hill and
+  character, moving with the time of day, with sunlight and sky light rebalanced to
+  match. Costs about 1–2 ms of GPU time on Apple silicon. While it is on, the in-game
+  Shadows option is Classic (`[shadows] item1=2` in the client's `user.dat`), so the
+  game's own projected shadows do not double up (the fork also skips the classic blob
+  shadows); turning it off puts back the value from before, leaving every other option
+  as it is. The client rewrites `user.dat` when it exits, so picking another Shadows
+  setting in game makes the patch partly on until you enable it again. Needs
+  `--prefix` (every user's `user.dat` of this client in that prefix; one must exist,
+  so start the client once first).
 
-`figure-fog`, `water`, `ambient-occlusion` and `god-rays` need the daoc mtld3d fork build, which `daoc client install`
-ships; stock mtld3d ignores keys it does not know.
+`figure-fog`, `water`, `ambient-occlusion`, `god-rays` and `sun-shadows` need the daoc mtld3d fork build, which
+`daoc client install` ships; stock mtld3d ignores keys it does not know.
 
 `mtld3d.conf` is written next to `game.dll` with a first-line marker. A
 `mtld3d.conf` of your own (no marker) is never overwritten or deleted: mtld3d

@@ -97,7 +97,7 @@ def run(args) -> None:
         patches.change(app, ids if args.command == "enable" else set(),
                        ids if args.command == "disable" else set(), get_registry, archives,
                        launcher=launcher, level=getattr(args, "level", None),
-                       from_dir=Path(from_dir).expanduser() if from_dir else None)
+                       from_dir=Path(from_dir).expanduser() if from_dir else None, prefix=prefix)
         show_status(app, launcher, prefix)
         print("Changes take effect at the next client launch.")
     elif args.command == "select":
@@ -134,7 +134,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="daoc-gfx", description="Graphical patches for the DAoC 1.127 client "
                                 "under Wine on macOS (OfflineDAoC-macOS).")
     p.add_argument("--app", required=True, help="client app folder (the one holding game.dll)")
-    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode, reshade)")
+    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode, reshade, sun-shadows)")
     p.add_argument("--wine", help="wine folder with bin/wine (Retina mode, reshade)")
     p.add_argument("--launcher", help="OfflineDAoC-macOS launcher .app (anisotropy, reshade; default: "
                                       "DAoCLauncher.app beside the client's OfflineDAoC folder)")

@@ -4,7 +4,9 @@
 records the prefix's RetinaMode value from before, and turning it off restores
 that value. The mtld3d.conf keys of every enabled mtld3d patch go into one file
 whose first line is a marker; an mtld3d.conf without the marker is the user's
-own and is never overwritten or deleted.
+own and is never overwritten or deleted. A patch's `userdat` options are set in
+the prefix's user.dat when it turns on and put back when it turns off
+(userdat.py), under the same operation lock.
 """
 from __future__ import annotations
 
@@ -12,8 +14,9 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, Iterable, List, Optional, Set
 
+from . import userdat
 from .common import GfxError, game_running, operation_lock, read_json, refuse_if_running, state_dir, write_json
 
 STATE = "display.json"
@@ -90,8 +93,11 @@ def enabled(app: Path) -> List[str]:
 
 
 def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
-          get_registry: Callable[[], WineRegistry], is_running=game_running) -> None:
-    """Make `wanted` the exact set of enabled display patches (ids of `catalog`)."""
+          get_registry: Callable[[], WineRegistry], is_running=game_running,
+          prefix: Optional[Path] = None, refresh: Iterable[str] = (), log=print) -> None:
+    """Make `wanted` the exact set of enabled display patches (ids of `catalog`).
+    The user.dat options of patches turning on, and of the `refresh` ones, are set
+    in `prefix`; those of patches turning off are put back there."""
     with operation_lock(app):
         refuse_if_running(app, is_running)
         conf = app / CONF
@@ -104,6 +110,21 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
 
         state_path = state_dir(app) / STATE
         state = read_json(state_path) or {"enabled": []}
+        options_on = [p for p in catalog if p in wanted and "userdat" in catalog[p]
+                      and (p not in state["enabled"] or p in refresh)]
+        options_off = [p for p in catalog if p in state["enabled"] and p not in wanted and "userdat" in catalog[p]]
+        if (options_on or options_off) and prefix is None:
+            raise GfxError(f"the user.dat options of {', '.join(options_on + options_off)} need "
+                           "--prefix <wine prefix>")
+        for p in options_off:
+            for section, options in catalog[p]["userdat"].items():
+                for key in options:
+                    userdat.restore(app, [prefix], section, key, is_running=is_running, log=log)
+        for p in options_on:
+            for section, options in catalog[p]["userdat"].items():
+                for key, value in options.items():
+                    userdat.set(app, [prefix], section, key, value, is_running=is_running, log=log)
+
         retina_on = any(catalog[p]["kind"] == "retina" for p in wanted)
         retina_was = any(catalog.get(p, {}).get("kind") == "retina" for p in state["enabled"])
         if retina_on and not retina_was:

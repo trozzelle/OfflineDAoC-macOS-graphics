@@ -7,7 +7,7 @@ import shlex
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Sequence, Set
 
-from . import anisotropy, display, reshade, textures
+from . import anisotropy, display, reshade, textures, userdat
 from .common import GfxError, game_running
 
 CATALOG_FILE = Path(__file__).with_name("patches.json")
@@ -48,19 +48,26 @@ def texture_state(app: Path) -> str:
 
 def states(app: Path, launcher: Optional[Path] = None, prefix: Optional[Path] = None) -> Dict[str, str]:
     """Each patch's state; `prefix` (the Wine prefix the client runs in) also
-    checks the reshade patch's registry value was set there."""
+    checks the reshade patch's registry value was set there, and that the user.dat
+    options of a patch are in its user.dat (without it, in the files they were set in)."""
     cat = catalog()
     shown = set(display.enabled(app))
 
-    def one(p: str, kind: str) -> str:
+    def one(p: str, spec: dict) -> str:
+        kind = spec["kind"]
         if kind == "textures":
             return texture_state(app)
         if kind == "anisotropy":
             return anisotropy.state(app, launcher)
         if kind == "reshade":
             return reshade.state(app, launcher, prefix)
-        return ON if p in shown else OFF
-    return {p: one(p, spec["kind"]) for p, spec in cat.items()}
+        if p not in shown:
+            return OFF
+        options_in_place = all(userdat.holds(app, None if prefix is None else [prefix], section, key, value)
+                               for section, options in spec.get("userdat", {}).items()
+                               for key, value in options.items())
+        return ON if options_in_place else PARTLY_ON
+    return {p: one(p, spec) for p, spec in cat.items()}
 
 
 def check_one_d3d9(cat: Dict[str, dict], on: Iterable[str]) -> None:
@@ -73,10 +80,12 @@ def check_one_d3d9(cat: Dict[str, dict], on: Iterable[str]) -> None:
 def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callable,
            archives: Optional[Sequence[Path]] = None, is_running=game_running, log=print,
            launcher: Optional[Path] = None, level: Optional[int] = None,
-           from_dir: Optional[Path] = None) -> None:
+           from_dir: Optional[Path] = None, prefix: Optional[Path] = None) -> None:
     """Turn the `enable` patches on and the `disable` ones off; leave every other patch alone.
     `level` is the anisotropy patch's level, when it is being turned on. `archives`, or
-    `from_dir` (a folder 'textures export' wrote), is the texture pack to install."""
+    `from_dir` (a folder 'textures export' wrote), is the texture pack to install. `prefix`
+    is the Wine prefix whose user.dat the patches with user.dat options change; enabling
+    such a patch that is already on sets its options again (e.g. after a change in game)."""
     cat = catalog()
     check_ids(cat, enable | disable)
     both = enable & disable
@@ -93,8 +102,9 @@ def change(app: Path, enable: Set[str], disable: Set[str], get_registry: Callabl
     display_ids = {p for p in cat if cat[p]["kind"] in DISPLAY_KINDS}
     current = set(display.enabled(app))
     wanted = (current | (enable & display_ids)) - disable
-    if wanted != current:
-        display.apply(app, cat, wanted, get_registry, is_running)
+    refresh = {p for p in enable & display_ids if "userdat" in cat[p]}
+    if wanted != current or refresh:
+        display.apply(app, cat, wanted, get_registry, is_running, prefix=prefix, refresh=refresh, log=log)
 
     # Off before on, so one call can swap the d3d9.dll patches.
     for p in (p for p in cat if cat[p]["kind"] == "reshade" and p in disable):
@@ -184,7 +194,7 @@ def select(app: Path, get_registry: Callable, ask: Callable[[str], str] = input,
     if any(cat[p]["kind"] == "anisotropy" for p in enable):
         level = ask_level(app, ask, out)
     change(app, enable, disable, get_registry, archives, is_running=is_running, log=log, launcher=launcher,
-           level=level, from_dir=from_dir)
+           level=level, from_dir=from_dir, prefix=prefix)
     for p in ids:
         if p in enable:
             out(f"on : {cat[p]['title']}")

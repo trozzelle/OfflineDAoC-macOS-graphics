@@ -15,9 +15,11 @@ section, when it added that and nothing else is in it now). Every other line,
 including options changed in game since, stays as it is; with nothing else
 changed, the file ends byte-identical. Section and key names match without
 regard to case; the file's line endings (CRLF from the client) are kept.
+`holds` tells whether a value is in place, in a prefix's files or in those
+`set` changed.
 
-The client rewrites user.dat when it exits, so both refuse while it runs. The
-caller holds the client's operation lock.
+The client rewrites user.dat when it exits, so `set` and `restore` refuse while
+it runs. The caller holds the client's operation lock.
 """
 from __future__ import annotations
 
@@ -153,6 +155,13 @@ def restore_value(data: bytes, section: str, key: str, entry: dict) -> bytes:
     return b"".join(lines)
 
 
+def get_value(data: bytes, section: str, key: str) -> Optional[str]:
+    """The key's value in `data` without the spaces around it, or None when it is absent."""
+    lines = _LINE.findall(data)
+    _, at, _ = _find(lines, section.lower().encode("latin-1"), key.lower().encode("latin-1"))
+    return None if at is None else _content(lines[at]).partition(b"=")[2].strip().decode("latin-1")
+
+
 def _write(path: Path, data: bytes) -> None:
     tmp = path.with_name(path.name + ".daoc-gfx.tmp")
     tmp.write_bytes(data)
@@ -216,3 +225,14 @@ def restore(app: Path, prefixes: Iterable[Path], section: str, key: str,
         write_json(record_path, {"files": record})
     elif record_path.exists():
         record_path.unlink()
+
+
+def holds(app: Path, prefixes: Optional[Iterable[Path]], section: str, key: str, value: str) -> bool:
+    """Whether every user.dat of `prefixes` has `[section] key=value`; for None, every
+    file `set` changed it in. False when there is no such file."""
+    if prefixes is None:
+        record: Dict[str, Dict[str, dict]] = (read_json(state_dir(app) / STATE) or {}).get("files", {})
+        files = [Path(p) for p, entries in record.items() if _entry_name(section, key) in entries]
+    else:
+        files = user_dats(app, prefixes)
+    return bool(files) and all(p.is_file() and get_value(p.read_bytes(), section, key) == value for p in files)
