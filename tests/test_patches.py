@@ -61,7 +61,7 @@ class EnableDisable(Patches):
         self.assertEqual(self.states(), {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
                                          "water": "off", "ambient-occlusion": "off", "god-rays": "off",
-                                         "sun-shadows": "off"})
+                                         "sun-shadows": "off", "ray-traced-lighting": "off"})
 
     def test_figure_fog_patch_writes_key(self):
         catalog = patches.catalog()
@@ -129,12 +129,12 @@ class Select(Patches):
         self.assertEqual(self.states(), {"retina": "on", "srgb": "on", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
                                          "water": "off", "ambient-occlusion": "off", "god-rays": "off",
-                                         "sun-shadows": "off"})
+                                         "sun-shadows": "off", "ray-traced-lighting": "off"})
         self.select("2", "")
         self.assertEqual(self.states(), {"retina": "on", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
                                          "water": "off", "ambient-occlusion": "off", "god-rays": "off",
-                                         "sun-shadows": "off"})
+                                         "sun-shadows": "off", "ray-traced-lighting": "off"})
         self.assertEqual(self.registry.value, "y")
 
     def test_toggling_twice_or_quitting_changes_nothing(self):
@@ -171,10 +171,8 @@ class Select(Patches):
         self.assertEqual(self.states()["textures"], "on")
 
 
-class SunShadows(Patches):
-    """A patch with mtld3d.conf keys and a user.dat option."""
-
-    KEYS = ["shadows.sun = on", "lighting.sunScale = 1.8", "lighting.ambientScale = 0.65"]
+class WithUserDat(Patches):
+    """A client with a user.dat in its Wine prefix, for the patches with user.dat options."""
 
     def setUp(self):
         super().setUp()
@@ -183,6 +181,12 @@ class SunShadows(Patches):
         self.dat = self.prefix / "drive_c/users/crossover" / CAMELOT / "OfflineDAoC03" / "user.dat"
         self.dat.parent.mkdir(parents=True)
         self.dat.write_bytes(CLIENT)
+
+
+class SunShadows(WithUserDat):
+    """A patch with mtld3d.conf keys and a user.dat option."""
+
+    KEYS = ["shadows.sun = on", "lighting.sunScale = 1.8", "lighting.ambientScale = 0.65"]
 
     def state(self, prefix=None):
         return patches.states(self.app, prefix=prefix)["sun-shadows"]
@@ -283,6 +287,92 @@ class SunShadows(Patches):
             self.change(enable=["retina", "sun-shadows"], prefix=self.prefix)
         self.assertEqual(self.registry.value, "n")
         self.assertFalse((state_dir(self.app) / display.STATE).exists())
+        self.assertFalse(self.conf.exists())
+
+
+class RayTracedLighting(WithUserDat):
+    """Shares the lighting keys and the Shadows option with sun-shadows."""
+
+    KEYS = ["rt.shadows = on", "rt.ao = 1.0", "rt.gi = 1.0", "rt.pointShadows = on",
+            "lighting.sunScale = 1.8", "lighting.ambientScale = 0.65"]
+    SHARED = ["lighting.sunScale = 1.8", "lighting.ambientScale = 0.65"]
+    OWN = {"sun-shadows": "shadows.sun = on", "ray-traced-lighting": "rt.shadows = on"}
+    SHADOWS_CLASSIC = CLIENT.replace(b"item1=0", b"item1=2", 1)
+
+    def state(self, p, prefix=None):
+        return patches.states(self.app, prefix=prefix)[p]
+
+    def test_ray_traced_lighting_patch_writes_keys_and_userdat(self):
+        self.change(enable=["ray-traced-lighting"], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        for key in self.KEYS:
+            self.assertIn(key, lines)
+        self.assertNotIn("shadows.sun = on", lines)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        self.assertEqual(self.state("ray-traced-lighting", self.prefix), "on")
+        self.assertEqual(self.state("ray-traced-lighting"), "on")
+        self.change(disable=["ray-traced-lighting"], prefix=self.prefix)
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+
+    def assert_shared_options_outlive_the_first_off(self, first, last):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.change(enable=["ray-traced-lighting"], prefix=self.prefix)
+        self.change(disable=[first], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        for key in self.SHARED:
+            self.assertIn(key, lines)
+        self.assertNotIn(self.OWN[first], lines)
+        self.assertIn(self.OWN[last], lines)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        self.assertEqual(self.state(first, self.prefix), "off")
+        self.assertEqual(self.state(last, self.prefix), "on")
+        self.assertEqual(self.state(last), "on")
+        self.change(disable=[last], prefix=self.prefix)
+        self.assertFalse(self.conf.exists())
+        self.assertEqual(self.dat.read_bytes(), CLIENT)  # byte-identical to before either patch
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+
+    def test_disabling_sun_shadows_keeps_what_ray_traced_lighting_still_needs(self):
+        self.assert_shared_options_outlive_the_first_off("sun-shadows", "ray-traced-lighting")
+
+    def test_disabling_ray_traced_lighting_keeps_what_sun_shadows_still_needs(self):
+        self.assert_shared_options_outlive_the_first_off("ray-traced-lighting", "sun-shadows")
+
+    def test_dropping_one_of_two_sharing_patches_needs_no_prefix(self):
+        self.change(enable=["sun-shadows", "ray-traced-lighting"], prefix=self.prefix)
+        self.change(disable=["sun-shadows"])  # user.dat stays as it is, so no prefix is needed
+        lines = self.conf.read_text().splitlines()
+        self.assertNotIn("shadows.sun = on", lines)
+        self.assertIn("rt.shadows = on", lines)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        with self.assertRaisesRegex(GfxError, "ray-traced-lighting.*--prefix"):
+            self.change(disable=["ray-traced-lighting"])
+        self.change(disable=["ray-traced-lighting"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+
+    def test_both_off_in_one_call_restores_the_original(self):
+        self.dat.write_bytes(CLIENT.replace(b"item1=0", b"item1=1", 1))  # Shadows on before
+        before = self.dat.read_bytes()
+        self.change(enable=["sun-shadows", "ray-traced-lighting"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        self.change(disable=["sun-shadows", "ray-traced-lighting"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), before)
+        self.assertFalse(self.conf.exists())
+
+    def test_swapping_in_one_call_keeps_the_original_from_before_either(self):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.change(enable=["ray-traced-lighting"], disable=["sun-shadows"], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        self.assertNotIn("shadows.sun = on", lines)
+        self.assertIn("rt.shadows = on", lines)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        self.assertEqual(self.state("sun-shadows", self.prefix), "off")
+        self.assertEqual(self.state("ray-traced-lighting", self.prefix), "on")
+        self.change(disable=["ray-traced-lighting"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
         self.assertFalse(self.conf.exists())
 
 

@@ -63,9 +63,27 @@
   "sun-shadows": {
     "kind": "mtld3d",
     "title": "Sun shadows",
-    "description": "mtld3d draws real shadows from the sun (shadows.sun = on) for every building, tree, hill and character, moving with the time of day, with sunlight and sky light rebalanced to match (lighting.sunScale = 1.8, lighting.ambientScale = 0.65). Costs about half a millisecond of GPU time on Apple silicon. Turns the in-game Shadows option to Classic (user.dat [shadows] item1=2) while on, so the game's own projected shadows do not double up, and puts it back when turned off; needs --prefix for that. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the keys).",
+    "description": "mtld3d draws real shadows from the sun (shadows.sun = on) for every building, tree, hill and character, moving with the time of day, with sunlight and sky light rebalanced to match (lighting.sunScale = 1.8, lighting.ambientScale = 0.65). Costs about half a millisecond of GPU time on Apple silicon. Turns the in-game Shadows option to Classic (user.dat [shadows] item1=2) while on, so the game's own projected shadows do not double up, and puts it back when turned off (not while ray-traced-lighting, which sets it too, is still on); needs --prefix for that. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the keys).",
     "mtld3d": {
       "shadows.sun": "on",
+      "lighting.sunScale": "1.8",
+      "lighting.ambientScale": "0.65"
+    },
+    "userdat": {
+      "shadows": {
+        "item1": "2"
+      }
+    }
+  },
+  "ray-traced-lighting": {
+    "kind": "mtld3d",
+    "title": "Ray-traced lighting",
+    "description": "mtld3d ray-traces the lighting on the GPU: soft sun shadows (rt.shadows = on), ambient occlusion (rt.ao = 1.0), bounce light (rt.gi = 1.0) and shadows from fires and torches (rt.pointShadows = on), with sunlight and sky light rebalanced to match (lighting.sunScale = 1.8, lighting.ambientScale = 0.65). Supersedes sun-shadows: it can be on as well, and then the ray-traced shadows take over. Needs an Apple-silicon Mac (hardware-accelerated ray tracing on M3 and later). Costs about 6 ms of GPU time at 1920x1080 (measured on an M5 Ultra), far more than sun-shadows. Turns the in-game Shadows option to Classic (user.dat [shadows] item1=2) while on, so the game's own projected shadows do not double up, and puts it back when turned off (not while sun-shadows, which sets it too, is still on); needs --prefix for that. Needs the daoc mtld3d fork build (daoc client install ships it; stock mtld3d ignores the keys).",
+    "mtld3d": {
+      "rt.shadows": "on",
+      "rt.ao": "1.0",
+      "rt.gi": "1.0",
+      "rt.pointShadows": "on",
       "lighting.sunScale": "1.8",
       "lighting.ambientScale": "0.65"
     },

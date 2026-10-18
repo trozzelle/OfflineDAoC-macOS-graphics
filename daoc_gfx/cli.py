@@ -134,7 +134,8 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="daoc-gfx", description="Graphical patches for the DAoC 1.127 client "
                                 "under Wine on macOS (OfflineDAoC-macOS).")
     p.add_argument("--app", required=True, help="client app folder (the one holding game.dll)")
-    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode, reshade, sun-shadows)")
+    p.add_argument("--prefix", help="wine prefix the client runs in (Retina mode, reshade, sun-shadows, "
+                                    "ray-traced-lighting)")
     p.add_argument("--wine", help="wine folder with bin/wine (Retina mode, reshade)")
     p.add_argument("--launcher", help="OfflineDAoC-macOS launcher .app (anisotropy, reshade; default: "
                                       "DAoCLauncher.app beside the client's OfflineDAoC folder)")

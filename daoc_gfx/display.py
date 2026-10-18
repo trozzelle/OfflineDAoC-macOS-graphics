@@ -97,7 +97,8 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
           prefix: Optional[Path] = None, refresh: Iterable[str] = (), log=print) -> None:
     """Make `wanted` the exact set of enabled display patches (ids of `catalog`).
     The user.dat options of patches turning on, and of the `refresh` ones, are set
-    in `prefix`; those of patches turning off are put back there."""
+    in `prefix`; those of patches turning off are put back there, except the ones a
+    patch staying on sets too (the last patch setting an option puts it back)."""
     with operation_lock(app):
         refuse_if_running(app, is_running)
         conf = app / CONF
@@ -112,7 +113,19 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
         state = read_json(state_path) or {"enabled": []}
         options_on = [p for p in catalog if p in wanted and "userdat" in catalog[p]
                       and (p not in state["enabled"] or p in refresh)]
-        options_off = [p for p in catalog if p in state["enabled"] and p not in wanted and "userdat" in catalog[p]]
+        held = {(section.lower(), key.lower()) for p in catalog if p in wanted
+                for section, options in catalog[p].get("userdat", {}).items() for key in options}
+        released = {}  # (section, key) lower-cased -> as the catalog names them
+        options_off = []
+        for p in catalog:
+            if p not in state["enabled"] or p in wanted or "userdat" not in catalog[p]:
+                continue
+            mine = [(section, key) for section, options in catalog[p]["userdat"].items() for key in options
+                    if (section.lower(), key.lower()) not in held]
+            if mine:
+                options_off.append(p)
+            for section, key in mine:
+                released.setdefault((section.lower(), key.lower()), (section, key))
         if (options_on or options_off) and prefix is None:
             raise GfxError(f"the user.dat options of {', '.join(options_on + options_off)} need "
                            "--prefix <wine prefix>")
@@ -131,10 +144,8 @@ def apply(app: Path, catalog: Dict[str, dict], wanted: Set[str],
         elif retina_was and not retina_on:
             registry.set_retina(state.pop("retina_before", None))
 
-        for p in options_off:
-            for section, options in catalog[p]["userdat"].items():
-                for key in options:
-                    userdat.restore(app, [prefix], section, key, is_running=is_running, log=log)
+        for section, key in released.values():
+            userdat.restore(app, [prefix], section, key, is_running=is_running, log=log)
         for p in options_on:
             for section, options in catalog[p]["userdat"].items():
                 for key, value in options.items():
