@@ -361,6 +361,20 @@ class RayTracedLighting(WithUserDat):
         self.assertEqual(self.dat.read_bytes(), before)
         self.assertFalse(self.conf.exists())
 
+    def test_swapping_in_one_call_keeps_the_original_from_before_either(self):
+        self.change(enable=["sun-shadows"], prefix=self.prefix)
+        self.change(enable=["ray-traced-lighting"], disable=["sun-shadows"], prefix=self.prefix)
+        lines = self.conf.read_text().splitlines()
+        self.assertNotIn("shadows.sun = on", lines)
+        self.assertIn("rt.shadows = on", lines)
+        self.assertEqual(self.dat.read_bytes(), self.SHADOWS_CLASSIC)
+        self.assertEqual(self.state("sun-shadows", self.prefix), "off")
+        self.assertEqual(self.state("ray-traced-lighting", self.prefix), "on")
+        self.change(disable=["ray-traced-lighting"], prefix=self.prefix)
+        self.assertEqual(self.dat.read_bytes(), CLIENT)
+        self.assertFalse((state_dir(self.app) / userdat.STATE).exists())
+        self.assertFalse(self.conf.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -176,7 +176,8 @@ empty, and `--from-dir` skips them. Your folder is copied, not moved.
   match. Costs about half a millisecond of GPU time on Apple silicon. While it is on, the in-game
   Shadows option is Classic (`[shadows] item1=2` in the client's `user.dat`), so the
   game's own projected shadows do not double up (the fork also skips the classic blob
-  shadows); turning it off puts back the value from before, leaving every other option
+  shadows); turning it off puts back the value from before (not while
+  `ray-traced-lighting`, which sets it too, is still on), leaving every other option
   as it is. The client rewrites `user.dat` when it exits, so picking another Shadows
   setting in game makes the patch partly on until you enable it again. Needs
   `--prefix` (every user's `user.dat` of this client in that prefix; one must exist,
