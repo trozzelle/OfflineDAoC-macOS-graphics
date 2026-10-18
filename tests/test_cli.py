@@ -46,7 +46,7 @@ class StatusJson(Cli):
                              "patches": {"retina": "off", "srgb": "off", "textures": "not installed",
                                          "anisotropy": "off", "reshade": "off", "figure-fog": "off",
                                          "water": "off", "ambient-occlusion": "off", "god-rays": "off",
-                                         "sun-shadows": "off"},
+                                         "sun-shadows": "off", "ray-traced-lighting": "off"},
                              "anisotropy_level": None,
                              "mtld3d_conf": "none",
                              "textures": {"components": [], "pending": None}})
