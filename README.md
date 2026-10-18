@@ -203,8 +203,9 @@ patches are refused instead, and `retina` still works.
 
 #### Combining patches
 
-Each patch was measured on its own against the same client with it off; no
-combination has been measured as a whole.
+`ambient-occlusion` and `god-rays` were measured together, and their costs add up;
+`ray-traced-lighting` was measured with all four of its parts on. It has not been
+measured together with the other patches.
 
 - `ray-traced-lighting` has its own ambient occlusion, so with `ambient-occlusion`
   on as well creases are darkened twice. Turn on one of the two.
