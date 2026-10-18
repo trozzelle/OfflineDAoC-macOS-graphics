@@ -201,6 +201,23 @@ mtld3d fork build, which `daoc client install` ships; stock mtld3d ignores keys 
 `mtld3d.conf` of your own (no marker) is never overwritten or deleted: mtld3d
 patches are refused instead, and `retina` still works.
 
+#### Combining patches
+
+Each patch was measured on its own against the same client with it off; no
+combination has been measured as a whole.
+
+- `ray-traced-lighting` has its own ambient occlusion, so with `ambient-occlusion`
+  on as well creases are darkened twice. Turn on one of the two.
+- With `ray-traced-lighting` on, `sun-shadows` adds nothing: its shadows give way to
+  the ray-traced ones.
+- Ray tracing costs more the more pixels the game draws. The 6 ms is at 1920×1080;
+  `retina` on a 4K panel draws four times as many and has not been measured with it.
+  Pair `retina` with `sun-shadows`, or check the frame rate.
+- `figure-fog` and `water` cost a few hundredths of a millisecond, `god-rays` about
+  0.16 ms while it draws, and `ambient-occlusion` about 0.55 ms.
+- `water` changes only the reflective water, which needs the in-game water
+  reflections on; the classic ripple water looks the same with it on or off.
+
 ### Anisotropic filtering
 
 DAoC never asks for anisotropic filtering, and mtld3d uses it only when a game
